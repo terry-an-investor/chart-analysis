@@ -6,11 +6,8 @@ adapters/base.py
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Union
-import sys
 
-# 添加父目录到路径以便导入 data_schema
-sys.path.insert(0, str(Path(__file__).parent.parent))
-from data_schema import OHLCData
+from ..data_schema import OHLCData
 
 
 class DataAdapter(ABC):

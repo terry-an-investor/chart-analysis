@@ -1,13 +1,11 @@
 """
 process_ohlc.py
 通用 OHLC 数据处理模块，为 K 线添加状态标签。
-
-替代原有的 process_tl_cfe.py，使用标准化的 OHLC 格式。
 """
 
 import pandas as pd
-from kline_logic import classify_k_line_combination
-from data_schema import OHLCData, COL_DATETIME, COL_HIGH, COL_LOW
+from .kline_logic import classify_k_line_combination
+from .data_schema import OHLCData, COL_DATETIME, COL_HIGH, COL_LOW
 
 
 def add_kline_status(data: OHLCData) -> pd.DataFrame:
@@ -63,14 +61,3 @@ def process_and_save(data: OHLCData, output_path: str) -> pd.DataFrame:
     print(f"\n处理完成，保存至: {output_path}")
     
     return df
-
-
-# 测试代码
-if __name__ == "__main__":
-    from data_loader import load_ohlc
-    
-    # 加载数据
-    data = load_ohlc("TL.CFE.xlsx")
-    
-    # 处理并保存
-    process_and_save(data, "TL.CFE_processed.csv")

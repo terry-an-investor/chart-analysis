@@ -8,7 +8,7 @@ filter_fractals.py
 import pandas as pd
 import matplotlib.pyplot as plt
 
-from data_schema import COL_DATETIME, COL_OPEN, COL_HIGH, COL_LOW, COL_CLOSE
+from .data_schema import COL_DATETIME, COL_OPEN, COL_HIGH, COL_LOW, COL_CLOSE
 
 plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'Arial'] 
 plt.rcParams['axes.unicode_minus'] = False
@@ -318,8 +318,3 @@ def plot_strokes(df, strokes, all_markers, col_dt, col_open, col_high, col_low, 
         plt.close()
     else:
         plt.show()
-
-
-if __name__ == "__main__":
-    # 直接从合并后的数据开始处理
-    process_strokes('TL.CFE_merged.csv', 'TL.CFE_strokes.csv')

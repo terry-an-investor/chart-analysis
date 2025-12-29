@@ -9,7 +9,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
-from data_schema import COL_DATETIME, COL_OPEN, COL_HIGH, COL_LOW, COL_CLOSE
+from .data_schema import COL_DATETIME, COL_OPEN, COL_HIGH, COL_LOW, COL_CLOSE
 
 # 设置中文显示
 plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'Arial'] 
@@ -230,7 +230,3 @@ def plot_merged_kline(df, col_dt, col_open, col_high, col_low, col_close, save_p
         plt.close()
     else:
         plt.show()
-
-
-if __name__ == "__main__":
-    apply_kline_merging('TL.CFE_processed.csv', 'TL.CFE_merged.csv')

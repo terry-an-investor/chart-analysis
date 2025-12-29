@@ -10,31 +10,40 @@ run_pipeline.py
 
 用法:
     uv run run_pipeline.py              # 交互式选择数据文件
-    uv run run_pipeline.py TL.CFE.xlsx  # 直接指定文件
+    uv run run_pipeline.py data/raw/TL.CFE.xlsx  # 直接指定文件
     
 输出文件:
-    - *_processed.csv   (带状态标签的原始K线)
-    - *_merged.csv      (合并后的K线)
-    - *_strokes.csv     (带笔端点标记的最终结果)
-    - output_merged_kline.png  (合并后K线图)
-    - output_strokes.png       (笔端点标记图)
+    - data/processed/*_processed.csv   (带状态标签的原始K线)
+    - data/processed/*_merged.csv      (合并后的K线)
+    - data/processed/*_strokes.csv     (带笔端点标记的最终结果)
+    - output/*_merged_kline.png        (合并后K线图)
+    - output/*_strokes.png             (笔端点标记图)
 """
 
 import sys
 from pathlib import Path
 
+# 确保 src 模块可导入
+sys.path.insert(0, str(Path(__file__).parent))
+
+# 目录配置
+DATA_RAW_DIR = Path("data/raw")
+DATA_PROCESSED_DIR = Path("data/processed")
+OUTPUT_DIR = Path("output")
+
 # 支持的数据文件扩展名
 SUPPORTED_EXTENSIONS = {'.xlsx', '.xls', '.csv'}
 
 
-def find_data_files(directory: Path = Path('.')) -> list[Path]:
-    """扫描目录下所有支持的数据文件（排除处理后的输出文件）"""
+def find_data_files(directory: Path = DATA_RAW_DIR) -> list[Path]:
+    """扫描目录下所有支持的数据文件"""
+    if not directory.exists():
+        return []
+    
     files = []
     for ext in SUPPORTED_EXTENSIONS:
         for f in directory.glob(f'*{ext}'):
-            # 排除输出文件
-            if not any(suffix in f.stem for suffix in ['_processed', '_merged', '_strokes']):
-                files.append(f)
+            files.append(f)
     return sorted(files, key=lambda x: x.name.lower())
 
 
@@ -43,8 +52,9 @@ def select_file_interactive() -> str:
     files = find_data_files()
     
     if not files:
-        print("❌ 当前目录下没有找到可处理的数据文件")
+        print(f"❌ 目录 '{DATA_RAW_DIR}' 下没有找到可处理的数据文件")
         print(f"   支持的格式: {', '.join(SUPPORTED_EXTENSIONS)}")
+        print(f"   请将数据文件放到 {DATA_RAW_DIR}/ 目录下")
         sys.exit(1)
     
     if len(files) == 1:
@@ -80,54 +90,61 @@ def select_file_interactive() -> str:
             sys.exit(0)
 
 
-def main(input_file: str = "TL.CFE.xlsx"):
+def main(input_file: str):
     print("=" * 60)
     print("K 线分析流水线 (Bill Williams / Chan Theory)")
     print("=" * 60)
+    
+    # 确保输出目录存在
+    DATA_PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     
     # 从输入文件名生成输出文件名
     input_path = Path(input_file)
     base_name = input_path.stem  # 不含扩展名的文件名
     
-    processed_csv = f"{base_name}_processed.csv"
-    merged_csv = f"{base_name}_merged.csv"
-    strokes_csv = f"{base_name}_strokes.csv"
+    # 输出路径
+    processed_csv = DATA_PROCESSED_DIR / f"{base_name}_processed.csv"
+    merged_csv = DATA_PROCESSED_DIR / f"{base_name}_merged.csv"
+    strokes_csv = DATA_PROCESSED_DIR / f"{base_name}_strokes.csv"
+    merged_plot = OUTPUT_DIR / f"{base_name}_merged_kline.png"
+    strokes_plot = OUTPUT_DIR / f"{base_name}_strokes.png"
     
     # Step 1: 加载数据
     print(f"\n[Step 1/4] 加载数据: {input_file}")
-    from data_loader import load_ohlc
+    from src.data_loader import load_ohlc
     data = load_ohlc(input_file)
     print(f"  加载完成: {data}")
     print(f"  日期范围: {data.date_range[0].date()} ~ {data.date_range[1].date()}")
     
     # Step 2: 处理原始数据，添加K线状态
     print(f"\n[Step 2/4] 添加 K 线状态标签...")
-    from process_ohlc import process_and_save
-    process_and_save(data, processed_csv)
+    from src.process_ohlc import process_and_save
+    process_and_save(data, str(processed_csv))
     
     # Step 3: K 线合并
     print(f"\n[Step 3/4] 合并包含关系的 K 线...")
-    from kline_merging import apply_kline_merging
-    apply_kline_merging(processed_csv, merged_csv, 
-                        save_plot_path='output_merged_kline.png')
+    from src.kline_merging import apply_kline_merging
+    apply_kline_merging(str(processed_csv), str(merged_csv), 
+                        save_plot_path=str(merged_plot))
     
     # Step 4: 分型识别与笔过滤
     print(f"\n[Step 4/4] 识别分型并生成有效笔...")
-    from filter_fractals import process_strokes
-    process_strokes(merged_csv, strokes_csv,
-                    save_plot_path='output_strokes.png')
+    from src.filter_fractals import process_strokes
+    process_strokes(str(merged_csv), str(strokes_csv),
+                    save_plot_path=str(strokes_plot))
     
     print("\n" + "=" * 60)
     print("流水线完成！")
     print("=" * 60)
     print("生成文件:")
-    print("  CSV:")
-    print(f"    - {processed_csv}  (带状态标签的原始K线)")
-    print(f"    - {merged_csv}     (合并后的K线)")
-    print(f"    - {strokes_csv}    (带笔端点标记的最终结果)")
-    print("  图表:")
-    print("    - output_merged_kline.png  (合并后K线图)")
-    print("    - output_strokes.png       (笔端点标记图)")
+    print(f"  CSV (data/processed/):")
+    print(f"    - {processed_csv.name}  (带状态标签的原始K线)")
+    print(f"    - {merged_csv.name}     (合并后的K线)")
+    print(f"    - {strokes_csv.name}    (带笔端点标记的最终结果)")
+    print(f"  图表 (output/):")
+    print(f"    - {merged_plot.name}  (合并后K线图)")
+    print(f"    - {strokes_plot.name}       (笔端点标记图)")
 
 
 if __name__ == "__main__":

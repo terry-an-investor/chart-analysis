@@ -13,9 +13,7 @@ from typing import Union
 import pandas as pd
 
 from .base import DataAdapter
-import sys
-sys.path.insert(0, str(Path(__file__).parent.parent))
-from data_schema import (
+from ..data_schema import (
     OHLCData, 
     COL_DATETIME, COL_OPEN, COL_HIGH, COL_LOW, COL_CLOSE, COL_VOLUME
 )

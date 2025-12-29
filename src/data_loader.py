@@ -3,21 +3,21 @@ data_loader.py
 统一数据加载入口，自动选择合适的适配器加载数据。
 
 用法:
-    from data_loader import load_ohlc
+    from src.data_loader import load_ohlc
     
     # 自动检测适配器
-    data = load_ohlc("TL.CFE.xlsx")
+    data = load_ohlc("data/raw/TL.CFE.xlsx")
     
     # 指定适配器
-    data = load_ohlc("TL.CFE.xlsx", adapter="wind_cfe")
+    data = load_ohlc("data/raw/TL.CFE.xlsx", adapter="wind_cfe")
 """
 
 from pathlib import Path
 from typing import Union, Optional
 
-from data_schema import OHLCData
-from adapters import WindCFEAdapter
-from adapters.base import DataAdapter
+from .data_schema import OHLCData
+from .adapters import WindCFEAdapter
+from .adapters.base import DataAdapter
 
 
 # 注册所有可用的适配器
@@ -80,20 +80,3 @@ def register_adapter(name: str, adapter: DataAdapter) -> None:
     """注册新的适配器"""
     ADAPTERS[name] = adapter
     print(f"已注册适配器: {name} -> {adapter}")
-
-
-# 测试代码
-if __name__ == "__main__":
-    print("=== 数据加载器测试 ===\n")
-    
-    print("可用适配器:", list_adapters())
-    
-    # 测试加载 xlsx
-    try:
-        data = load_ohlc("TL.CFE.xlsx")
-        print(f"\n加载结果: {data}")
-        print(f"日期范围: {data.date_range}")
-        print(f"\n前5行预览:")
-        print(data.df.head())
-    except Exception as e:
-        print(f"加载失败: {e}")

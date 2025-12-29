@@ -1,15 +1,13 @@
-# Python-generated files
+# Byte-compiled / optimized / DLL files
 __pycache__/
-*.py[oc]
-build/
-dist/
-wheels/
-*.egg-info
+*.py[cod]
+*$py.class
 
 # Virtual environments
 .venv
 
-# Data files
-*.xlsx
-*.csv
-*.png
+# Data files (user-specific)
+data/
+
+# Output files (generated)
+output/
