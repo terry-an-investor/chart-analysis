@@ -230,23 +230,119 @@ def process_strokes(input_path, output_path, save_plot_path=None):
     all_markers += [(idx, f_type[0] + 'x') for idx, f_type in replaced_candidates]  # 'Tx' or 'Bx'
     all_markers.sort(key=lambda x: x[0])  # 按索引排序
     
-    plot_strokes(df, strokes, all_markers, col_dt, col_open, col_high, col_low, col_close, save_plot_path)
+    # 识别中枢
+    hubs = identify_hubs(strokes, highs, lows)
+    print(f"识别到 {len(hubs)} 个中枢")
+    for i, hub in enumerate(hubs):
+        print(f"  中枢{i+1}: 区间[{hub['start_idx']}, {hub['end_idx']}], 上沿={hub['top']:.2f}, 下沿={hub['bottom']:.2f}")
+    
+    plot_strokes(df, strokes, all_markers, hubs, col_dt, col_open, col_high, col_low, col_close, save_plot_path)
 
 
-def plot_strokes(df, strokes, all_markers, col_dt, col_open, col_high, col_low, col_close, save_path=None):
-    """绘制带笔端点标注的K线图"""
+def identify_hubs(strokes, highs, lows):
+    """
+    识别中枢：找出连续3笔以上有价格重叠的区间
+    
+    中枢定义：至少3笔（4个端点），且存在价格重叠区间
+    重叠区间 = max(所有笔的低点) ~ min(所有笔的高点)
+    如果 max_low < min_high，则存在有效重叠
+    
+    返回: [(start_idx, end_idx, top, bottom), ...]
+    """
+    if len(strokes) < 4:  # 至少需要4个端点才能构成3笔
+        return []
+    
+    hubs = []
+    i = 0
+    
+    while i < len(strokes) - 3:  # 需要至少4个点（3笔）
+        # 尝试从当前位置开始构建中枢
+        # 取前3笔（4个端点）的价格范围
+        stroke_ranges = []
+        for j in range(3):  # 前3笔
+            idx1, type1 = strokes[i + j]
+            idx2, type2 = strokes[i + j + 1]
+            
+            # 根据笔的方向确定高低点
+            if type1 == 'BOTTOM':  # 向上笔
+                stroke_low = lows[idx1]
+                stroke_high = highs[idx2]
+            else:  # 向下笔
+                stroke_high = highs[idx1]
+                stroke_low = lows[idx2]
+            
+            stroke_ranges.append((stroke_low, stroke_high))
+        
+        # 计算重叠区间: max(低点), min(高点)
+        hub_bottom = max(r[0] for r in stroke_ranges)
+        hub_top = min(r[1] for r in stroke_ranges)
+        
+        if hub_bottom < hub_top:  # 存在有效重叠
+            hub_start = strokes[i][0]
+            hub_end = strokes[i + 3][0]
+            
+            # 尝试扩展中枢：检查后续笔是否也在重叠区间内
+            extend_idx = i + 4
+            while extend_idx < len(strokes):
+                idx_prev = strokes[extend_idx - 1][0]
+                type_prev = strokes[extend_idx - 1][1]
+                idx_curr = strokes[extend_idx][0]
+                type_curr = strokes[extend_idx][1]
+                
+                # 计算新笔的范围
+                if type_prev == 'BOTTOM':  # 向上笔
+                    new_low = lows[idx_prev]
+                    new_high = highs[idx_curr]
+                else:  # 向下笔
+                    new_high = highs[idx_prev]
+                    new_low = lows[idx_curr]
+                
+                # 检查是否与中枢有重叠
+                if new_low < hub_top and new_high > hub_bottom:
+                    hub_end = idx_curr
+                    extend_idx += 1
+                else:
+                    break
+            
+            hubs.append({
+                'start_idx': hub_start,
+                'end_idx': hub_end,
+                'top': hub_top,
+                'bottom': hub_bottom
+            })
+            
+            # 从中枢结束位置继续寻找下一个中枢
+            i = extend_idx - 1
+        else:
+            i += 1
+    
+    return hubs
+
+
+def plot_strokes(df, strokes, all_markers, hubs, col_dt, col_open, col_high, col_low, col_close, save_path=None):
+    """绘制带笔端点标注和中枢的K线图"""
     print("\n开始绘制...")
     
     df[col_dt] = pd.to_datetime(df[col_dt])
     
-    # 显示全部数据
-    plot_df = df.copy().reset_index(drop=True)
-    num_bars = len(plot_df)
+    # 显示最后100根K线
+    num_bars = 100
+    if len(df) > num_bars:
+        plot_df = df.iloc[-num_bars:].copy().reset_index(drop=True)
+        offset = len(df) - num_bars
+    else:
+        plot_df = df.copy().reset_index(drop=True)
+        offset = 0
     
     # 调整索引到 plot_df 的范围
-    offset = 0  # 全部数据，无偏移
-    plot_strokes_only = [(idx, t[0]) for idx, t in strokes]  # 仅用于连线
-    plot_all_markers = [(idx, t) for idx, t in all_markers]  # 用于所有标记
+    plot_strokes_only = [(idx - offset, t[0]) for idx, t in strokes]  # 仅用于连线
+    plot_all_markers = [(idx - offset, t) for idx, t in all_markers]  # 用于所有标记
+    plot_hubs = [{
+        'start_idx': hub['start_idx'] - offset,
+        'end_idx': hub['end_idx'] - offset,
+        'top': hub['top'],
+        'bottom': hub['bottom']
+    } for hub in hubs]
     
     dates = plot_df[col_dt]
     opens = plot_df[col_open]
@@ -307,6 +403,29 @@ def plot_strokes(df, strokes, all_markers, col_dt, col_open, col_high, col_low, 
             stroke_y.append(lows.iloc[plot_idx])
     
     ax.plot(stroke_x, stroke_y, color='purple', linewidth=1.5, linestyle='-', label='笔')
+    
+    # 绘制中枢区间（Support/Resistance）
+    for i, hub in enumerate(plot_hubs):
+        # 过滤不在显示范围内的中枢
+        if hub['end_idx'] < 0 or hub['start_idx'] >= len(plot_df):
+            continue
+        
+        # 裁剪到显示范围
+        x_start = max(0, hub['start_idx'])
+        x_end = min(len(plot_df) - 1, hub['end_idx'])
+        
+        # 绘制中枢区域（半透明矩形）
+        ax.axhspan(hub['bottom'], hub['top'], 
+                   xmin=x_start/len(plot_df), xmax=(x_end+1)/len(plot_df),
+                   alpha=0.2, color='orange', label='中枢' if i == 0 else '')
+        
+        # 绘制上沿线（Resistance）
+        ax.hlines(hub['top'], x_start, x_end, colors='red', linestyles='--', 
+                  linewidth=1.5, label='上沿(R)' if i == 0 else '')
+        
+        # 绘制下沿线（Support）
+        ax.hlines(hub['bottom'], x_start, x_end, colors='blue', linestyles='--', 
+                  linewidth=1.5, label='下沿(S)' if i == 0 else '')
     
     step = 5
     ax.set_xticks(range(0, len(plot_df), step))
