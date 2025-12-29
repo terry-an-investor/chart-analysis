@@ -1,10 +1,14 @@
 """
 filter_fractals.py
+分型识别与笔过滤模块。
+
 直接从合并后的K线数据中识别分型，并应用笔的过滤规则。
-整合了 identify_fractals.py 和过滤逻辑，避免中间文件不同步问题。
+支持标准 OHLC 格式（推荐）和旧版中文列名格式（向后兼容）。
 """
 import pandas as pd
 import matplotlib.pyplot as plt
+
+from data_schema import COL_DATETIME, COL_OPEN, COL_HIGH, COL_LOW, COL_CLOSE
 
 plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'Arial'] 
 plt.rcParams['axes.unicode_minus'] = False
@@ -14,6 +18,25 @@ plt.rcParams['axes.unicode_minus'] = False
 # ============================================================
 MIN_DIST = 3  # 顶底分型中间K线索引差至少为3（即中间隔2根，总共6根K线，不共用）
 
+
+def _detect_columns(df: pd.DataFrame) -> tuple[str, str, str, str, str]:
+    """
+    检测 DataFrame 使用的列名格式，返回 (datetime, open, high, low, close) 列名。
+    """
+    # 标准格式
+    if COL_HIGH in df.columns:
+        return COL_DATETIME, COL_OPEN, COL_HIGH, COL_LOW, COL_CLOSE
+    
+    # 旧版中文格式
+    if '最高价(元)' in df.columns:
+        return '日期', '开盘价(元)', '最高价(元)', '最低价(元)', '收盘价(元)'
+    
+    if '最高价' in df.columns:
+        return '日期', '开盘价', '最高价', '最低价', '收盘价'
+    
+    raise ValueError(f"无法识别列名格式，当前列: {df.columns.tolist()}")
+
+
 def process_strokes(input_path, output_path, save_plot_path=None):
     """
     从合并后的K线数据中：
@@ -21,10 +44,19 @@ def process_strokes(input_path, output_path, save_plot_path=None):
     2. 应用笔的规则过滤（顶底交替 + 极值更新 + 间隔约束）
     """
     print(f"读取合并后的K线数据: {input_path}")
-    df = pd.read_csv(input_path, encoding='gbk')
     
-    highs = df['最高价(元)'].tolist()
-    lows = df['最低价(元)'].tolist()
+    # 尝试多种编码
+    try:
+        df = pd.read_csv(input_path, encoding='utf-8')
+    except UnicodeDecodeError:
+        df = pd.read_csv(input_path, encoding='gbk')
+    
+    # 检测列名格式
+    col_dt, col_open, col_high, col_low, col_close = _detect_columns(df)
+    print(f"检测到列名格式: high={col_high}, low={col_low}")
+    
+    highs = df[col_high].tolist()
+    lows = df[col_low].tolist()
     n = len(df)
     
     if n < 3:
@@ -66,14 +98,9 @@ def process_strokes(input_path, output_path, save_plot_path=None):
     strokes = []
     
     # 状态变量
-    # 我们需要一个 "待确认分型" (pending)，和 "上一个已确认分型" (last_stroke_end)
-    # pending = (index, type) or None
-    # last_stroke_end = (index, type) or None
-    
     pending = None
     last_stroke_end = None
-    # 被替换的候选列表：(index, original_type)
-    # 这些是曾经是候选但被同向更极端的分型替代的点
+    # 被替换的候选列表
     replaced_candidates = []
     
     for idx, f_type in fractal_points:
@@ -88,7 +115,6 @@ def process_strokes(input_path, output_path, save_plot_path=None):
             # 同向分型：极值比较
             if f_type == last_stroke_end[1]:
                 if f_type == 'TOP' and highs[idx] > highs[last_stroke_end[0]]:
-                    # 记录被替换的
                     old = strokes.pop()
                     replaced_candidates.append(old)
                     strokes.append((idx, f_type))
@@ -115,7 +141,6 @@ def process_strokes(input_path, output_path, save_plot_path=None):
             # 同向分型：比较极值
             if f_type == 'TOP':
                 if highs[idx] > highs[pending_idx]:
-                    # 旧的pending被替换
                     replaced_candidates.append(pending)
                     pending = (idx, f_type)
             elif f_type == 'BOTTOM':
@@ -181,7 +206,7 @@ def process_strokes(input_path, output_path, save_plot_path=None):
     df['valid_fractal'] = valid_fractals
     
     # 保存
-    df.to_csv(output_path, index=False, encoding='gbk')
+    df.to_csv(output_path, index=False, encoding='utf-8')
     
     # 统计
     print(f"过滤完成。规则: 最小间隔 {MIN_DIST}")
@@ -205,13 +230,14 @@ def process_strokes(input_path, output_path, save_plot_path=None):
     all_markers += [(idx, f_type[0] + 'x') for idx, f_type in replaced_candidates]  # 'Tx' or 'Bx'
     all_markers.sort(key=lambda x: x[0])  # 按索引排序
     
-    plot_strokes(df, strokes, all_markers, save_plot_path)
+    plot_strokes(df, strokes, all_markers, col_dt, col_open, col_high, col_low, col_close, save_plot_path)
 
-def plot_strokes(df, strokes, all_markers, save_path=None):
+
+def plot_strokes(df, strokes, all_markers, col_dt, col_open, col_high, col_low, col_close, save_path=None):
     """绘制带笔端点标注的K线图"""
     print("\n开始绘制...")
     
-    df['日期'] = pd.to_datetime(df['日期'])
+    df[col_dt] = pd.to_datetime(df[col_dt])
     
     num_bars = 100
     plot_df = df.tail(num_bars).copy().reset_index(drop=True)
@@ -221,11 +247,11 @@ def plot_strokes(df, strokes, all_markers, save_path=None):
     plot_strokes_only = [(idx - offset, t[0]) for idx, t in strokes if idx >= offset]  # 仅用于连线
     plot_all_markers = [(idx - offset, t) for idx, t in all_markers if idx >= offset]  # 用于所有标记
     
-    dates = plot_df['日期']
-    opens = plot_df['开盘价(元)']
-    closes = plot_df['收盘价(元)']
-    highs = plot_df['最高价(元)']
-    lows = plot_df['最低价(元)']
+    dates = plot_df[col_dt]
+    opens = plot_df[col_open]
+    closes = plot_df[col_close]
+    highs = plot_df[col_high]
+    lows = plot_df[col_low]
     
     fig, ax = plt.subplots(figsize=(14, 8))
     
@@ -253,14 +279,14 @@ def plot_strokes(df, strokes, all_markers, save_path=None):
         if base_type == 'T':
             color = 'gray' if is_cancelled else 'black'
             label = 'Tx' if is_cancelled else 'T'
-            ax.annotate(label, xy=(plot_idx, highs[plot_idx]), 
-                        xytext=(plot_idx, highs[plot_idx]*1.003),
+            ax.annotate(label, xy=(plot_idx, highs.iloc[plot_idx]), 
+                        xytext=(plot_idx, highs.iloc[plot_idx]*1.003),
                         ha='center', fontsize=10, fontweight='bold', color=color)
         elif base_type == 'B':
             color = 'gray' if is_cancelled else 'blue'
             label = 'Bx' if is_cancelled else 'B'
-            ax.annotate(label, xy=(plot_idx, lows[plot_idx]),
-                        xytext=(plot_idx, lows[plot_idx]*0.997),
+            ax.annotate(label, xy=(plot_idx, lows.iloc[plot_idx]),
+                        xytext=(plot_idx, lows.iloc[plot_idx]*0.997),
                         ha='center', fontsize=10, fontweight='bold', color=color)
     
     # 笔的连线：只连接确认的端点
@@ -271,10 +297,10 @@ def plot_strokes(df, strokes, all_markers, save_path=None):
             continue
         if f_type == 'T':
             stroke_x.append(plot_idx)
-            stroke_y.append(highs[plot_idx])
+            stroke_y.append(highs.iloc[plot_idx])
         elif f_type == 'B':
             stroke_x.append(plot_idx)
-            stroke_y.append(lows[plot_idx])
+            stroke_y.append(lows.iloc[plot_idx])
     
     ax.plot(stroke_x, stroke_y, color='purple', linewidth=1.5, linestyle='-', label='笔')
     
@@ -283,7 +309,7 @@ def plot_strokes(df, strokes, all_markers, save_path=None):
     ax.set_xticklabels([d.strftime('%Y-%m-%d') for d in dates[::step]], rotation=45, fontsize=8)
     
     ax.set_title('Stroke Identification (Bill Williams / Chan Theory)', fontsize=14)
-    ax.set_ylabel('Price (元)')
+    ax.set_ylabel('Price')
     ax.legend()
     plt.tight_layout()
     if save_path:
@@ -292,6 +318,7 @@ def plot_strokes(df, strokes, all_markers, save_path=None):
         plt.close()
     else:
         plt.show()
+
 
 if __name__ == "__main__":
     # 直接从合并后的数据开始处理
