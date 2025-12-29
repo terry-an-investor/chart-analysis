@@ -9,11 +9,8 @@ run_pipeline.py
 4. 分型识别    - 识别分型并过滤生成有效笔
 
 用法:
-    uv run run_pipeline.py [数据文件路径]
-    
-示例:
-    uv run run_pipeline.py TL.CFE.xlsx
-    uv run run_pipeline.py path/to/other_data.csv
+    uv run run_pipeline.py              # 交互式选择数据文件
+    uv run run_pipeline.py TL.CFE.xlsx  # 直接指定文件
     
 输出文件:
     - *_processed.csv   (带状态标签的原始K线)
@@ -25,6 +22,62 @@ run_pipeline.py
 
 import sys
 from pathlib import Path
+
+# 支持的数据文件扩展名
+SUPPORTED_EXTENSIONS = {'.xlsx', '.xls', '.csv'}
+
+
+def find_data_files(directory: Path = Path('.')) -> list[Path]:
+    """扫描目录下所有支持的数据文件（排除处理后的输出文件）"""
+    files = []
+    for ext in SUPPORTED_EXTENSIONS:
+        for f in directory.glob(f'*{ext}'):
+            # 排除输出文件
+            if not any(suffix in f.stem for suffix in ['_processed', '_merged', '_strokes']):
+                files.append(f)
+    return sorted(files, key=lambda x: x.name.lower())
+
+
+def select_file_interactive() -> str:
+    """交互式选择数据文件"""
+    files = find_data_files()
+    
+    if not files:
+        print("❌ 当前目录下没有找到可处理的数据文件")
+        print(f"   支持的格式: {', '.join(SUPPORTED_EXTENSIONS)}")
+        sys.exit(1)
+    
+    if len(files) == 1:
+        print(f"找到数据文件: {files[0].name}")
+        return str(files[0])
+    
+    print("\n📂 请选择要处理的数据文件:\n")
+    for i, f in enumerate(files, 1):
+        # 显示文件大小
+        size_kb = f.stat().st_size / 1024
+        print(f"  [{i}] {f.name}  ({size_kb:.1f} KB)")
+    
+    print(f"\n  [0] 退出\n")
+    
+    while True:
+        try:
+            choice = input("请输入序号: ").strip()
+            if choice == '0':
+                print("已退出")
+                sys.exit(0)
+            
+            idx = int(choice) - 1
+            if 0 <= idx < len(files):
+                selected = files[idx]
+                print(f"\n✅ 已选择: {selected.name}\n")
+                return str(selected)
+            else:
+                print(f"请输入 0-{len(files)} 之间的数字")
+        except ValueError:
+            print("请输入有效的数字")
+        except KeyboardInterrupt:
+            print("\n已取消")
+            sys.exit(0)
 
 
 def main(input_file: str = "TL.CFE.xlsx"):
@@ -78,10 +131,10 @@ def main(input_file: str = "TL.CFE.xlsx"):
 
 
 if __name__ == "__main__":
-    # 支持命令行参数
+    # 支持命令行参数或交互式选择
     if len(sys.argv) > 1:
         input_file = sys.argv[1]
     else:
-        input_file = "TL.CFE.xlsx"  # 默认使用 xlsx 文件
+        input_file = select_file_interactive()
     
     main(input_file)
