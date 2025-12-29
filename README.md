@@ -7,19 +7,21 @@
 
 1.  **多源数据适配**
     - 支持加载 Wind 导出的 Excel 数据格式 (`.xlsx`)。
-    - 自动识别并适配国债期货 (TF/TL) 等品种数据。
+    - 自动识别并适配国债期货 (TF/TL)、10年期国债 (TB10Y) 等品种数据。
+    - 支持 CSV 格式输入。
 
 2.  **K 线包含关系处理 (Merge)**
     - 严格遵循缠论定义的包含关系处理逻辑。
     - 自动识别趋势方向（上涨/下跌）并进行 K 线合并，消除市场噪音。
+    - 支持递归合并和向左回溯检查。
 
 3.  **分型与笔识别 (Fractals & Strokes)**
-    - **顶底分型**：基于合并 K 线识别顶分型 (Top) 和底分型 (Bottom)。
-    - **笔生成**：根据分型间的包含关系和力度，自动连接生成“笔” (Strokes)。
-    - **有效性过滤**：内置过滤逻辑，确保分型间满足最小 K 线间隔要求。
+    - **顶底分型**：基于合并 K 线识别顶分型 (Top/T) 和底分型 (Bottom/B)。
+    - **笔生成**：根据分型间的包含关系和力度，自动连接生成"笔" (Strokes)。
+    - **有效性过滤**：内置过滤逻辑，确保分型间满足最小 K 线间隔要求 (MIN_DIST=4)。
 
 4.  **阻力/支撑分析 (Support & Resistance)**
-    - 基于“重要高低点” (Major Swing High/Low) 逻辑。
+    - 基于"重要高低点" (Major Swing High/Low) 逻辑。
     - 识别潜在的市场关键位。
 
 5.  **📈 交互式可视化 (Interactive Charts)**
@@ -50,25 +52,54 @@ uv run run_pipeline.py
 ```
 
 ### 3. 选择输入
-程序启动后会扫描 `data/raw` 目录下的 `.xlsx` 文件，请根据提示输入序号选择要分析的数据文件。
+程序启动后会扫描 `data/raw` 目录下的 `.xlsx` / `.csv` 文件，请根据提示输入序号选择要分析的数据文件。
 
 ## 📂 项目结构
 
 ```
 tl-fractal/
 ├── data/
-│   ├── raw/            # 存放原始 Excel 数据文件
-│   └── processed/      # 存放处理过程中的 CSV (按 ticker 分类)
-├── output/             # 生成的图表结果 (HTML, PNG, SVG)
+│   ├── raw/                 # 存放原始 Excel/CSV 数据文件
+│   └── processed/           # 存放处理过程中的 CSV（按 ticker 分类）
+│       ├── tl/              # TL.CFE 相关数据
+│       └── tb10y/           # TB10Y.WI 相关数据
+├── output/                  # 生成的图表结果（按 ticker 分类）
+│   ├── tl/
+│   └── tb10y/
 ├── src/
-│   ├── analysis/       # 核心分析逻辑
-│   │   ├── fractals.py     # 分型与笔识别算法
-│   │   └── interactive.py  # Plotly 交互式绘图模块
-│   └── io/             # 数据输入输出适配器
-├── run_pipeline.py     # 主程序入口
-├── pyproject.toml      # 项目依赖配置
-└── README.md           # 项目文档
+│   ├── analysis/            # 核心分析逻辑
+│   │   ├── fractals.py      # 分型与笔识别算法 (MIN_DIST=4)
+│   │   ├── merging.py       # K线包含关系合并
+│   │   ├── interactive.py   # Plotly 交互式绘图模块
+│   │   ├── kline_logic.py   # K线状态分类
+│   │   └── process_ohlc.py  # 原始数据处理
+│   └── io/                  # 数据输入输出适配器
+│       ├── loader.py        # 统一数据加载入口
+│       ├── schema.py        # 数据模式定义
+│       └── adapters/        # 数据适配器
+│           ├── wind_cfe_adapter.py  # Wind CFE 格式适配器
+│           └── base.py      # 适配器基类
+├── tests/                   # 测试脚本
+│   ├── test_min_dist.py     # MIN_DIST 参数对比测试
+│   └── plot_min_dist_compare.py  # 可视化对比脚本
+├── run_pipeline.py          # 主程序入口
+├── pyproject.toml           # 项目依赖配置
+└── README.md                # 项目文档
 ```
+
+## 📝 参数配置
+
+### MIN_DIST (最小间隔)
+在 `src/analysis/fractals.py` 中定义：
+
+```python
+MIN_DIST = 4  # 顶底分型中间K线索引差至少为4（即中间隔3根，总共7根K线，不共用）
+```
+
+**MIN_DIST=4 的效果**：
+- 减少短期噪音过滤更多笔
+- TL.CFE: 有效笔从 65 降至 53（减少 18.5%）
+- TB10Y.WI: 有效笔从 164 降至 114（减少 30.5%）
 
 ## 📝 交互式图表操作指南
 
@@ -78,5 +109,8 @@ tl-fractal/
 - **重置视图**: 在图表空白处**双击鼠标左键**，自动恢复最佳视野。
 
 ## 📋 最近更新
-- **交互优化**: 彻底重构了图表的 RangeSlider 样式，采用白底透明设计，修复了视觉干扰问题。【依然有问题，待解决】
-- **S/R 逻辑**: 移除了静态图中的干扰线，专注于分型和笔的纯粹展示。
+
+- **MIN_DIST 参数优化**: 将最小间隔从 3 调整为 4，过滤短期噪音，使笔的划分更加稳定。
+- **多品种支持**: 扩展支持 TB10Y.WI（10年期国债）等国债期货品种。
+- **数据分类存储**: 处理后的数据和输出图表按 ticker 分类存储到独立子目录。
+- **测试脚本**: 新增 `tests/test_min_dist.py` 和 `tests/plot_min_dist_compare.py` 用于参数对比测试。

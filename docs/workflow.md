@@ -5,7 +5,8 @@
 ```mermaid
 graph TB
     subgraph "📂 data/raw/"
-        RAW[("原始数据<br/>TL.CFE.xlsx")]
+        RAW1[("TL.CFE.xlsx")]
+        RAW2[("TB10Y.WI.xlsx")]
     end
     
     subgraph "📦 src/io/"
@@ -13,7 +14,8 @@ graph TB
         SCHEMA["schema.py<br/>OHLCData"]
         LOADER["loader.py<br/>load_ohlc()"]
         
-        RAW --> ADAPTER
+        RAW1 --> ADAPTER
+        RAW2 --> ADAPTER
         ADAPTER --> SCHEMA
         SCHEMA --> LOADER
     end
@@ -21,13 +23,15 @@ graph TB
     subgraph "📊 src/analysis/"
         PROCESS["process_ohlc.py<br/>add_kline_status()"]
         MERGE["merging.py<br/>apply_kline_merging()"]
-        FRACTAL["fractals.py<br/>process_strokes()"]
+        FRACTAL["fractals.py<br/>process_strokes()<br/>MIN_DIST=4"]
         KLINE["kline_logic.py<br/>classify_k_line_combination()"]
+        INTERACTIVE["interactive.py<br/>交互式可视化"]
         
         LOADER --> PROCESS
         KLINE -.-> PROCESS
         PROCESS --> MERGE
         MERGE --> FRACTAL
+        FRACTAL --> INTERACTIVE
     end
     
     subgraph "📂 data/processed/"
@@ -43,20 +47,40 @@ graph TB
     subgraph "📂 output/"
         PNG1[("*_merged_kline.png")]
         PNG2[("*_strokes.png")]
+        PNG3[("*_min_dist_comparison.png")]
+        PNG4[("*_min_dist_diff.png")]
+        HTML[("*_interactive.html")]
         
         MERGE --> PNG1
         FRACTAL --> PNG2
+        FRACTAL --> PNG3
+        FRACTAL --> PNG4
+        INTERACTIVE --> HTML
+    end
+    
+    subgraph "🧪 tests/"
+        TEST["test_min_dist.py<br/>MIN_DIST参数测试"]
+        PLOT["plot_min_dist_compare.py<br/>MIN_DIST对比可视化"]
+        
+        FRACTAL --> TEST
+        FRACTAL --> PLOT
     end
     
     PIPELINE["🚀 run_pipeline.py"] --> LOADER
     
-    style RAW fill:#e1f5fe
+    style RAW1 fill:#e1f5fe
+    style RAW2 fill:#e1f5fe
     style PIPELINE fill:#fff3e0
     style CSV1 fill:#e8f5e9
     style CSV2 fill:#e8f5e9
     style CSV3 fill:#e8f5e9
     style PNG1 fill:#fce4ec
     style PNG2 fill:#fce4ec
+    style PNG3 fill:#fce4ec
+    style PNG4 fill:#fce4ec
+    style HTML fill:#f3e5f5
+    style TEST fill:#fff9c4
+    style PLOT fill:#fff9c4
 ```
 
 ## Pipeline 执行流程
@@ -68,6 +92,7 @@ sequenceDiagram
     participant IO as src/io/
     participant Analysis as src/analysis/
     participant Output as data/processed/<br/>output/
+    participant Tests as tests/
     
     User->>Pipeline: uv run run_pipeline.py
     
@@ -89,8 +114,16 @@ sequenceDiagram
     
     Note over Pipeline: Step 4: 分型识别
     Pipeline->>Analysis: process_strokes()
-    Analysis->>Analysis: 识别顶底分型 + 过滤成笔
+    Analysis->>Analysis: 识别顶底分型 + 笔过滤 (MIN_DIST=4)
     Analysis-->>Output: *_strokes.csv + *.png
+    
+    Note over Pipeline: Step 5: 可选测试和可视化
+    User->>Tests: uv run tests/test_min_dist.py
+    Tests->>Analysis: 对比 MIN_DIST=3 vs 4
+    Tests-->>User: 测试结果报告
+    
+    User->>Tests: uv run plot_min_dist_compare.py
+    Tests->>Output: 生成对比可视化图表
     
     Pipeline-->>User: ✅ 流水线完成
 ```
@@ -116,20 +149,32 @@ graph LR
         B1[kline_logic.py]
         B2[process_ohlc.py]
         B3[merging.py]
-        B4[fractals.py]
+        B4[fractals.py<br/>MIN_DIST=4]
+        B5[interactive.py]
         
         B2 --> B1
         B2 --> A1
         B3 --> A1
         B4 --> A1
+        B5 --> A1
+        B5 --> B4
+    end
+    
+    subgraph "tests/"
+        C1[test_min_dist.py]
+        C2[plot_min_dist_compare.py]
+        
+        C1 --> B4
+        C2 --> B4
     end
     
     subgraph "入口"
-        C1[run_pipeline.py]
-        C1 --> A2
-        C1 --> B2
-        C1 --> B3
-        C1 --> B4
+        D1[run_pipeline.py]
+        D1 --> A2
+        D1 --> B2
+        D1 --> B3
+        D1 --> B4
+        D1 --> B5
     end
 ```
 
@@ -140,4 +185,48 @@ graph LR
 | **加载** | xlsx/csv (Wind格式) | 过滤脏数据 + 列名标准化 | `OHLCData` 对象 |
 | **状态标记** | `OHLCData` | 分类相邻K线关系 | `*_processed.csv` |
 | **合并** | processed.csv | 处理包含关系 | `*_merged.csv` + 图 |
-| **分型** | merged.csv | 识别顶底 + 笔过滤 | `*_strokes.csv` + 图 |
+| **分型** | merged.csv | 识别顶底 + 笔过滤 (MIN_DIST=4) | `*_strokes.csv` + 图 |
+
+## MIN_DIST 参数说明
+
+### 参数定义
+
+在 `src/analysis/fractals.py` 中定义：
+
+```python
+MIN_DIST = 4  # 顶底分型中间K线索引差至少为4（即中间隔3根，总共7根K线，不共用）
+```
+
+### 参数影响
+
+| 数据源 | MIN_DIST=3 | MIN_DIST=4 | 变化 |
+|--------|-----------|-----------|------|
+| TL.CFE | 65 笔 | 53 笔 | -12 笔 (-18.5%) |
+| TB10Y.WI | 164 笔 | 114 笔 | -50 笔 (-30.5%) |
+
+### MIN_DIST=4 的优势
+
+- **减少噪音**：过滤更多短期波动，识别更稳定的趋势
+- **提高质量**：确保笔之间有足够的间隔，避免过度敏感
+- **符合缠论**：更接近缠论中关于笔的定义要求
+
+### 测试和对比
+
+项目提供了测试和可视化工具来对比不同 MIN_DIST 值的效果：
+
+```bash
+# 运行 MIN_DIST 参数测试
+uv run tests/test_min_dist.py
+
+# 生成 MIN_DIST 对比可视化
+uv run plot_min_dist_compare.py
+```
+
+### 支持的数据源
+
+项目支持多个数据源的分析：
+
+- **TL.CFE**：中国金融期货交易所数据
+- **TB10Y.WI**：美国10年期国债收益率数据
+
+每个数据源独立处理，生成对应的处理结果和可视化图表。
