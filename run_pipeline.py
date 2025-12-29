@@ -99,16 +99,25 @@ def main(input_file: str):
     DATA_PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     
-    # 从输入文件名生成输出文件名
+    # 从输入文件名生成输出文件名和子目录
     input_path = Path(input_file)
-    base_name = input_path.stem  # 不含扩展名的文件名
+    base_name = input_path.stem  # 不含扩展名的文件名，如 "TL.CFE"
+    
+    # 提取ticker作为子目录名（取第一个点之前的部分，转小写）
+    ticker = base_name.split('.')[0].lower()  # "TL.CFE" -> "tl"
+    
+    # 创建ticker子目录
+    ticker_processed_dir = DATA_PROCESSED_DIR / ticker
+    ticker_output_dir = OUTPUT_DIR / ticker
+    ticker_processed_dir.mkdir(parents=True, exist_ok=True)
+    ticker_output_dir.mkdir(parents=True, exist_ok=True)
     
     # 输出路径
-    processed_csv = DATA_PROCESSED_DIR / f"{base_name}_processed.csv"
-    merged_csv = DATA_PROCESSED_DIR / f"{base_name}_merged.csv"
-    strokes_csv = DATA_PROCESSED_DIR / f"{base_name}_strokes.csv"
-    merged_plot = OUTPUT_DIR / f"{base_name}_merged_kline.png"
-    strokes_plot = OUTPUT_DIR / f"{base_name}_strokes.png"
+    processed_csv = ticker_processed_dir / f"{base_name}_processed.csv"
+    merged_csv = ticker_processed_dir / f"{base_name}_merged.csv"
+    strokes_csv = ticker_processed_dir / f"{base_name}_strokes.csv"
+    merged_plot = ticker_output_dir / f"{base_name}_merged_kline.png"
+    strokes_plot = ticker_output_dir / f"{base_name}_strokes.png"
     
     # Step 1: 加载数据
     print(f"\n[Step 1/4] 加载数据: {input_file}")
@@ -133,6 +142,33 @@ def main(input_file: str):
     from src.analysis.fractals import process_strokes
     process_strokes(str(merged_csv), str(strokes_csv),
                     save_plot_path=str(strokes_plot))
+
+    # Step 5: 生成交互式图表
+    print(f"\n[Step 5/5] 生成交互式 HTML 图表...")
+    from src.analysis import plot_interactive_kline
+    interactive_plot = ticker_output_dir / f"{base_name}_interactive.html"
+    
+    # 重新加载数据以获取绘图所需的DataFrame
+    import pandas as pd
+    from src.io import load_ohlc
+    
+    # 注意：这里我们使用合并后的数据来画图，因为它更干净
+    # 但strokes是基于合并后数据的索引，所以是对齐的
+    merged_df = pd.read_csv(merged_csv)
+    # 转换 datetime
+    merged_df['datetime'] = pd.to_datetime(merged_df['datetime'])
+    merged_df.set_index('datetime', inplace=False) # 保持 DataFrame 结构
+    
+    # 读取 strokes
+    strokes_df = pd.read_csv(strokes_csv)
+    # 转换 strokes 为 [(idx, type)] 格式
+    stroke_list = [
+        (idx, row['valid_fractal']) 
+        for idx, row in strokes_df.iterrows()
+        if pd.notna(row['valid_fractal'])
+    ]
+    
+    plot_interactive_kline(merged_df, stroke_list, str(interactive_plot))
     
     print("\n" + "=" * 60)
     print("流水线完成！")
@@ -145,6 +181,7 @@ def main(input_file: str):
     print(f"  图表 (output/):")
     print(f"    - {merged_plot.name}  (合并后K线图)")
     print(f"    - {strokes_plot.name}       (笔端点标记图)")
+    print(f"    - {interactive_plot.name}   (交互式HTML图表) 🆕")
 
 
 if __name__ == "__main__":

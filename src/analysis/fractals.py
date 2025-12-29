@@ -230,13 +230,7 @@ def process_strokes(input_path, output_path, save_plot_path=None):
     all_markers += [(idx, f_type[0] + 'x') for idx, f_type in replaced_candidates]  # 'Tx' or 'Bx'
     all_markers.sort(key=lambda x: x[0])  # 按索引排序
     
-    # 识别中枢
-    hubs = identify_hubs(strokes, highs, lows)
-    print(f"识别到 {len(hubs)} 个中枢")
-    for i, hub in enumerate(hubs):
-        print(f"  中枢{i+1}: 区间[{hub['start_idx']}, {hub['end_idx']}], 上沿={hub['top']:.2f}, 下沿={hub['bottom']:.2f}")
-    
-    plot_strokes(df, strokes, all_markers, hubs, col_dt, col_open, col_high, col_low, col_close, save_plot_path)
+    plot_strokes(df, strokes, all_markers, col_dt, col_open, col_high, col_low, col_close, save_plot_path)
 
 
 def identify_hubs(strokes, highs, lows):
@@ -319,8 +313,8 @@ def identify_hubs(strokes, highs, lows):
     return hubs
 
 
-def plot_strokes(df, strokes, all_markers, hubs, col_dt, col_open, col_high, col_low, col_close, save_path=None):
-    """绘制带笔端点标注和中枢的K线图"""
+def plot_strokes(df, strokes, all_markers, col_dt, col_open, col_high, col_low, col_close, save_path=None):
+    """绘制带笔端点标注和S/R线的K线图"""
     print("\n开始绘制...")
     
     df[col_dt] = pd.to_datetime(df[col_dt])
@@ -337,12 +331,7 @@ def plot_strokes(df, strokes, all_markers, hubs, col_dt, col_open, col_high, col
     # 调整索引到 plot_df 的范围
     plot_strokes_only = [(idx - offset, t[0]) for idx, t in strokes]  # 仅用于连线
     plot_all_markers = [(idx - offset, t) for idx, t in all_markers]  # 用于所有标记
-    plot_hubs = [{
-        'start_idx': hub['start_idx'] - offset,
-        'end_idx': hub['end_idx'] - offset,
-        'top': hub['top'],
-        'bottom': hub['bottom']
-    } for hub in hubs]
+
     
     dates = plot_df[col_dt]
     opens = plot_df[col_open]
@@ -378,62 +367,32 @@ def plot_strokes(df, strokes, all_markers, hubs, col_dt, col_open, col_high, col
         
         if base_type == 'T':
             color = 'gray' if is_cancelled else 'black'
-            label = 'Tx' if is_cancelled else 'T'
-            ax.annotate(label, xy=(plot_idx, highs.iloc[plot_idx]), 
-                        xytext=(plot_idx, highs.iloc[plot_idx]*1.003),
-                        ha='center', fontsize=10, fontweight='bold', color=color)
+            price = highs.iloc[plot_idx]
+            label = 'Tx' if is_cancelled else f'T {price:.2f}'
+            ax.annotate(label, xy=(plot_idx, price), 
+                        xytext=(plot_idx + 0.3, price*1.001),
+                        ha='left', fontsize=8, fontweight='bold', color=color)
         elif base_type == 'B':
             color = 'gray' if is_cancelled else 'blue'
-            label = 'Bx' if is_cancelled else 'B'
-            ax.annotate(label, xy=(plot_idx, lows.iloc[plot_idx]),
-                        xytext=(plot_idx, lows.iloc[plot_idx]*0.997),
-                        ha='center', fontsize=10, fontweight='bold', color=color)
+            price = lows.iloc[plot_idx]
+            label = 'Bx' if is_cancelled else f'B {price:.2f}'
+            ax.annotate(label, xy=(plot_idx, price),
+                        xytext=(plot_idx + 0.3, price*0.998),
+                        ha='left', fontsize=8, fontweight='bold', color=color)
     
-    # 笔的连线：只连接确认的端点
-    stroke_x = []
-    stroke_y = []
-    for plot_idx, f_type in plot_strokes_only:
-        if plot_idx < 0 or plot_idx >= len(plot_df):
-            continue
-        if f_type == 'T':
-            stroke_x.append(plot_idx)
-            stroke_y.append(highs.iloc[plot_idx])
-        elif f_type == 'B':
-            stroke_x.append(plot_idx)
-            stroke_y.append(lows.iloc[plot_idx])
-    
-    ax.plot(stroke_x, stroke_y, color='purple', linewidth=1.5, linestyle='-', label='笔')
-    
-    # 绘制中枢区间（Support/Resistance）
-    for i, hub in enumerate(plot_hubs):
-        # 过滤不在显示范围内的中枢
-        if hub['end_idx'] < 0 or hub['start_idx'] >= len(plot_df):
-            continue
-        
-        # 裁剪到显示范围
-        x_start = max(0, hub['start_idx'])
-        x_end = min(len(plot_df) - 1, hub['end_idx'])
-        
-        # 绘制中枢区域（半透明矩形）
-        ax.axhspan(hub['bottom'], hub['top'], 
-                   xmin=x_start/len(plot_df), xmax=(x_end+1)/len(plot_df),
-                   alpha=0.2, color='orange', label='中枢' if i == 0 else '')
-        
-        # 绘制上沿线（Resistance）
-        ax.hlines(hub['top'], x_start, x_end, colors='red', linestyles='--', 
-                  linewidth=1.5, label='上沿(R)' if i == 0 else '')
-        
-        # 绘制下沿线（Support）
-        ax.hlines(hub['bottom'], x_start, x_end, colors='blue', linestyles='--', 
-                  linewidth=1.5, label='下沿(S)' if i == 0 else '')
+    # 笔的连线和S/R线已移除，只保留T/B分型标注
     
     step = 5
     ax.set_xticks(range(0, len(plot_df), step))
     ax.set_xticklabels([d.strftime('%Y-%m-%d') for d in dates[::step]], rotation=45, fontsize=8)
     
+    # 给Y轴留出边距，确保最高/最低点和标签不贴边
+    y_min, y_max = lows.min(), highs.max()
+    y_margin = (y_max - y_min) * 0.05  # 5% 边距
+    ax.set_ylim(y_min - y_margin, y_max + y_margin)
+    
     ax.set_title('Stroke Identification (Bill Williams / Chan Theory)', fontsize=14)
     ax.set_ylabel('Price')
-    ax.legend()
     plt.tight_layout()
     if save_path:
         # 保存 PNG（高DPI）
