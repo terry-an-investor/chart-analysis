@@ -180,19 +180,21 @@ class ChartBuilder:
     
     def add_fractal_markers(self, fractals: List[Tuple[int, str]]) -> 'ChartBuilder':
         """
-        添加顶底分型标记
+        添加分型标记 (Tc/Bc)
         
         Args:
-            fractals: 分型标记列表 [(index, 'T'|'B'|'Tx'|'Bx'|'Tc'|'Bc'), ...]
-                      - T/B: 已确认分型
-                      - Tx/Bx: 被替换的分型
-                      - Tc/Bc: 候选分型 (尚未确认，低滞后)
+            fractals: 分型标记列表 [(index, 'Tc'|'Bc'), ...]
+                      - Tc: 顶分型候选 (Top Candidate)
+                      - Bc: 底分型候选 (Bottom Candidate)
+        
+        显示规则:
+            - 直接显示 Tc 和 Bc 标记
+            - 不进行 Hn/Ln 计数
         
         Returns:
             self: 支持链式调用
         """
-        # 1. 预处理所有标记，转换为统一格式 (index, type) 并排序
-        # 注意: 这里 index 是 `display_idx` (显示位置)
+        # 1. 预处理: 提取候选分型并去重
         processed_markers = []
         for marker in fractals:
             if len(marker) == 3:
@@ -200,224 +202,49 @@ class ChartBuilder:
             else:
                 display_idx, f_type = marker
             
-            if 0 <= display_idx < len(self.df):
+            # 只处理候选分型 (Tc/Bc)
+            if 'c' in f_type and 0 <= display_idx < len(self.df):
                 processed_markers.append((display_idx, f_type))
         
-            if 0 <= display_idx < len(self.df):
-                processed_markers.append((display_idx, f_type))
+        # 去重并按索引排序
+        processed_markers = sorted(set(processed_markers), key=lambda x: x[0])
         
-        # 去重: 确保每个位置每种类型的标记只出现一次
-        processed_markers = list(set(processed_markers))
-        
-        # 按索引排序，确保计数逻辑正确 (从左到右)
-        processed_markers.sort(key=lambda x: x[0])
-        
-        # 2. H/L 计数逻辑
-        h_count = 0  # H1, H2, H3... (Buy setups in Leg Down)
-        l_count = 0  # L1, L2, L3... (Sell setups in Leg Up)
-        
-        last_h_idx = -999
-        last_l_idx = -999
-        
-        processed_markers.sort(key=lambda x: x[0])
+        # 2. 标记逻辑 (Tc/Bc)
+        # 不再使用 Hn/Ln 计数，直接显示原始分型标记
         
         for display_idx, f_type in processed_markers:
-            row = self.df.iloc[display_idx]
-            base_type = f_type.replace('x', '').replace('c', '')
-            is_candidate = 'c' in f_type
-            is_cancelled = 'x' in f_type
-            is_confirmed = not is_candidate and not is_cancelled # T/B
+            # display_idx 是右肩 K 线的索引（信号确认的位置）
+            # 分型中间 K 线的索引 = display_idx - 1
+            fractal_center_idx = display_idx - 1
+            if fractal_center_idx < 0:
+                continue  # 安全检查
             
-            # --- 计数重置逻辑 (互斥重置) ---
-            # 我们不再依赖 T/B 分型，而是依赖信号的触发来重置对手方的计数
-            # 只有当信号真正触发时，才重置对手方
+            # 获取中间 K 线的数据用于定位
+            center_row = self.df.iloc[fractal_center_idx]
+            base_type = f_type.replace('c', '')  # 'Tc' -> 'T', 'Bc' -> 'B'
             
-            # --- 候选标记逻辑 ---
-            # 只处理候选分型 (用户请求：只显示 Hx/Lx)
-            if is_candidate:
-                # 信号确认逻辑：
-                # Hx (Bc): (Next High > Sig High AND Next Close > Sig Close) OR (Signal Bar is Strong)
-                # Lx (Tc): (Next Low < Sig Low AND Next Close < Sig Close) OR (Signal Bar is Strong)
-                
-                # display_idx 是信号K线 (Signal Bar) 的索引
-                next_bar_idx = display_idx + 1
-                has_next_bar = next_bar_idx < len(self.df)
-                
-                # 判断信号线本身是否强势 (Strong Signal Bar)
-                # 强势定义: 收盘价在极值附近 (顶分型收在低位，底分型收在高位)
-                # 并且实体有一定长度 (避免十字星)
-                s_high = float(row['high'])
-                s_low = float(row['low'])
-                s_close = float(row['close'])
-                s_open = float(row['open'])
-                s_range = s_high - s_low
-                
-                is_strong = False
-                if s_range > 0:
-                    if base_type == 'T':
-                        # 顶分型: 收盘在底部 1/3，且是阴线(或实体很小的假阳)
-                        pos = (s_close - s_low) / s_range
-                        if pos < 0.33:
-                            is_strong = True
-                    elif base_type == 'B':
-                        # 底分型: 收盘在顶部 1/3
-                        pos = (s_close - s_low) / s_range
-                        if pos > 0.66:
-                            is_strong = True
-
-                triggered = False
-                
-                if base_type == 'T':
-                    # --- L Setup (Sell) ---
-                    # 1. Strong Signal Exception
-                    if is_strong:
-                        triggered = True
-                    # 2. Next Bar Confirmation
-                    elif has_next_bar:
-                        next_bar = self.df.iloc[next_bar_idx]
-                        next_low = float(next_bar['low'])
-                        next_close = float(next_bar['close'])
-                        # 严格条件：Next Low < Signal Low (突破) AND Next Close < Signal Close (收盘确认)
-                        if next_low < s_low and next_close < s_close:
-                            triggered = True
-                            
-                    if triggered:
-                        # 间距过滤: 防止相邻的K线同时标记 L2, L3
-                        if display_idx - last_l_idx < 2:
-                            continue
-                            
-                        l_count += 1
-                        last_l_idx = display_idx
-                        
-                        # 互斥重置: 触发卖出信号，意味着下跌波段开始，重置买入计数
-                        h_count = 0
-                        
-                        label = f'L{l_count}'
-                        color = '#e040fb' # 亮紫色
-                        pos = 'aboveBar'
-                        self.markers.append({
-                            'time': self._timestamp(row['datetime']),
-                            'position': pos,
-                            'color': color,
-                            'shape': 'circle',
-                            'text': label
-                        })
-                    
-                elif base_type == 'B':
-                    # --- H Setup (Buy) ---
-                    # 1. Strong Signal Exception
-                    if is_strong:
-                        triggered = True
-                    # 2. Next Bar Confirmation
-                    elif has_next_bar:
-                        next_bar = self.df.iloc[next_bar_idx]
-                        next_high = float(next_bar['high'])
-                        next_close = float(next_bar['close'])
-                        # 严格条件：Next High > Signal High (突破) AND Next Close > Signal Close (收盘确认)
-                        if next_high > s_high and next_close > s_close:
-                            triggered = True
-
-                    if triggered:
-                        # 间距过滤
-                        if display_idx - last_h_idx < 2:
-                            continue
-
-                        h_count += 1
-                        last_h_idx = display_idx
-                        
-                        # 互斥重置: 触发买入信号，意味着上涨波段开始，重置卖出计数
-                        l_count = 0
-                        
-                        label = f'H{h_count}'
-                        color = '#ff4081' # 粉红色
-                        pos = 'belowBar'
-                        self.markers.append({
-                            'time': self._timestamp(row['datetime']),
-                            'position': pos,
-                            'color': color,
-                            'shape': 'circle',
-                            'text': label
-                        })
-                continue
-            
-                continue
-            
-            # 用户请求：隐藏所有其他分型 (T/B/Tx/Bx)
-            if not is_candidate:
-                continue
-
-            # 分析右肩 (Signal Bar) 强度
-            # 分型由 左(idx-1) 中(idx) 右(idx+1) 构成
-            # 这里的 display_idx 是分型顶底所在的中间K线
-            # 我们考察右边那根K线(display_idx+1)的收盘力度
-            right_bar_idx = display_idx + 1
-            is_strong_signal = False
-            
-            if 0 <= right_bar_idx < len(self.df):
-                rb = self.df.iloc[right_bar_idx]
-                rb_range = rb['high'] - rb['low']
-                if rb_range > 0:
-                    if base_type == 'T':
-                        # 强顶分型: 右肩收在低位 (Bottom 1/3)
-                        close_pos = (rb['close'] - rb['low']) / rb_range
-                        if close_pos < 0.33:
-                            is_strong_signal = True
-                    elif base_type == 'B':
-                        # 强底分型: 右肩收在高位 (Top 1/3)
-                        close_pos = (rb['close'] - rb['low']) / rb_range
-                        if close_pos > 0.66:
-                            is_strong_signal = True
-
             if base_type == 'T':
-                price = float(row['high'])
-                
-                # 颜色逻辑: 
-                # - 被破坏(Tx): 灰色 #9e9e9e
-                # - 强信号(Strong T): 亮红 #ff0000 (纯红)
-                # - 普通(T): 暗红 #b71c1c (深红)
-                if is_cancelled:
-                    color = '#9e9e9e'
-                    text_prefix = 'Tx'
-                elif is_strong_signal:
-                    color = '#ff0000' # 强信号高亮
-                    text_prefix = 'T+'
-                else:
-                    color = '#b71c1c' # 普通信号变暗
-                    text_prefix = 'T'
-                    
-                # 简化显示: 只显示 T/B/Tx 标识，不显示价格文本
-                # 原因: Lightweight Charts 不支持多行文本，显示价格会导致标记过宽挤在一起
-                # 价格信息已由箭头位置和左上角 OHLC 面板提供
+                # Top 分型 -> Tc (标在中间K线)
+                label = 'Tc'
+                color = '#e040fb'  # 亮紫色
                 self.markers.append({
-                    'time': self._timestamp(row['datetime']),
+                    'time': self._timestamp(center_row['datetime']),
                     'position': 'aboveBar',
                     'color': color,
-                    'shape': 'arrowDown',
-                    'text': f'{text_prefix}'
+                    'shape': 'circle',
+                    'text': label
                 })
-            elif base_type == 'B':
-                price = float(row['low'])
                 
-                # 颜色逻辑:
-                # - 被破坏(Bx): 灰色 #9e9e9e
-                # - 强信号(Strong B): 亮绿 #00e676 (荧光绿)
-                # - 普通(B): 暗绿 #1b5e20 (深绿)
-                if is_cancelled:
-                    color = '#9e9e9e'
-                    text_prefix = 'Bx'
-                elif is_strong_signal:
-                    color = '#00e676' # 强信号高亮
-                    text_prefix = 'B+'
-                else:
-                    color = '#1b5e20' # 普通信号变暗
-                    text_prefix = 'B'
-                    
+            elif base_type == 'B':
+                # Bottom 分型 -> Bc (标在中间K线)
+                label = 'Bc'
+                color = '#ff4081'  # 粉红色
                 self.markers.append({
-                    'time': self._timestamp(row['datetime']),
+                    'time': self._timestamp(center_row['datetime']),
                     'position': 'belowBar',
                     'color': color,
-                    'shape': 'arrowUp',
-                    'text': f'{text_prefix}'
+                    'shape': 'circle',
+                    'text': label
                 })
         
         return self

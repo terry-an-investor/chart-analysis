@@ -82,6 +82,12 @@ def apply_kline_merging(input_path, output_path, save_plot_path=None):
     raw_bars = df.to_dict('records')
     if not raw_bars:
         return
+    
+    # 过滤掉 high/low 为 NaN 的无效行
+    valid_bars = [b for b in raw_bars if pd.notna(b[col_high]) and pd.notna(b[col_low])]
+    if len(valid_bars) < len(raw_bars):
+        print(f"过滤无效行: {len(raw_bars)} -> {len(valid_bars)} 行")
+    raw_bars = valid_bars
 
     merged_bars = []
     

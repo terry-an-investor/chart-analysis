@@ -37,6 +37,102 @@ def _detect_columns(df: pd.DataFrame) -> tuple[str, str, str, str, str]:
     raise ValueError(f"无法识别列名格式，当前列: {df.columns.tolist()}")
 
 
+def process_fractals(input_path, output_path, save_plot_path=None):
+    """
+    简化版分型识别（Al Brooks 风格）。
+    
+    只识别原始顶底分型，不应用笔的过滤规则。
+    每个分型形成后（右肩出现），在右肩 K 线上标记候选信号。
+    
+    输出列:
+    - raw_fractal: 原始分型类型 ('TOP', 'BOTTOM', '')
+    - candidate_display: 候选信号标记 ('Tc', 'Bc', '')
+    """
+    print(f"读取合并后的K线数据: {input_path}")
+    
+    # 尝试多种编码
+    try:
+        df = pd.read_csv(input_path, encoding='utf-8')
+    except UnicodeDecodeError:
+        df = pd.read_csv(input_path, encoding='gbk')
+    
+    # 检测列名格式
+    col_dt, col_open, col_high, col_low, col_close = _detect_columns(df)
+    print(f"检测到列名格式: high={col_high}, low={col_low}")
+    
+    highs = df[col_high].values
+    lows = df[col_low].values
+    opens = df[col_open].values
+    closes = df[col_close].values
+    n = len(df)
+    
+    if n < 3:
+        print("数据不足，无法识别分型")
+        return
+    
+    # ============================================================
+    # 识别原始分型（纯3根K线组合）
+    # 顶分型：中间K线的High比左右都高
+    # 底分型：中间K线的Low比左右都低
+    # 注意：跳过包含 NaN 值的 K 线
+    # ============================================================
+    raw_fractals = [''] * n  # '', 'TOP', 'BOTTOM'
+    
+    import math
+    
+    for i in range(1, n - 1):
+        h_prev, h_curr, h_next = highs[i-1], highs[i], highs[i+1]
+        l_prev, l_curr, l_next = lows[i-1], lows[i], lows[i+1]
+        
+        # 跳过包含 NaN 的 K 线组合
+        if any(math.isnan(x) if isinstance(x, float) else False 
+               for x in [h_prev, h_curr, h_next, l_prev, l_curr, l_next]):
+            continue
+        
+        # 顶分型：中间K线的High比左右都高 (合并处理后，这也意味着 Low 也较高)
+        if h_curr > h_prev and h_curr > h_next:
+            raw_fractals[i] = 'TOP'
+        # 底分型：中间K线的Low比左右都低 (合并处理后，这也意味着 High 也较低)
+        elif l_curr < l_prev and l_curr < l_next:
+            raw_fractals[i] = 'BOTTOM'
+    
+    raw_count = sum(1 for x in raw_fractals if x)
+    print(f"原始分型数量: {raw_count}")
+    
+    # ============================================================
+    # 生成候选信号显示列
+    # 分型在 i 处形成，右肩在 i+1，信号标记在右肩 K 线上
+    # ============================================================
+    candidate_display = [''] * n
+    
+    for i in range(n):
+        if raw_fractals[i]:
+            right_shoulder = i + 1
+            if right_shoulder < n:
+                marker = 'Tc' if raw_fractals[i] == 'TOP' else 'Bc'
+                # 允许同一根K线上有多个标记（用逗号分隔）
+                if candidate_display[right_shoulder]:
+                    candidate_display[right_shoulder] += ',' + marker
+                else:
+                    candidate_display[right_shoulder] = marker
+    
+    # 添加列到 DataFrame
+    df['raw_fractal'] = raw_fractals
+    df['candidate_display'] = candidate_display
+    # 为兼容性保留 valid_fractal 列（与候选相同）
+    df['valid_fractal'] = [''] * n
+    
+    # 保存
+    df.to_csv(output_path, index=False, encoding='utf-8')
+    
+    # 统计
+    print(f"分型识别完成。原始分型: {raw_count}")
+    print(f"结果已保存至: {output_path}")
+
+
+
+
+
 def process_strokes(input_path, output_path, save_plot_path=None):
     """
     从合并后的K线数据中：

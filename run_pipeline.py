@@ -233,10 +233,10 @@ def main(input_file: str):
     apply_kline_merging(str(processed_csv), str(merged_csv), 
                         save_plot_path=str(merged_plot))
     
-    # Step 4: 分型识别与笔过滤
-    print(f"\n[Step 4/4] 识别分型并生成有效笔...")
-    from src.analysis.fractals import process_strokes
-    process_strokes(str(merged_csv), str(strokes_csv),
+    # Step 4: 分型识别（Al Brooks 风格，不做笔过滤）
+    print(f"\n[Step 4/4] 识别顶底分型...")
+    from src.analysis.fractals import process_fractals
+    process_fractals(str(merged_csv), str(strokes_csv),
                     save_plot_path=str(strokes_plot))
 
     # Step 5: 生成交互式图表
