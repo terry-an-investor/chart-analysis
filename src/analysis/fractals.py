@@ -97,18 +97,30 @@ def process_strokes(input_path, output_path, save_plot_path=None):
     
     # 有效笔的端点列表: [(index, type), ...]
     strokes = []
+    # 每个笔端点的确认信息: {fractal_idx: confirm_idx}
+    # confirm_idx 是该分型被确认时的K线索引（即出现反向分型的那根K线）
+    stroke_confirm_info = {}
     
     # 状态变量
     pending = None
     last_stroke_end = None
     # 被替换的候选列表
     replaced_candidates = []
+    # 候选分型记录: [(fractal_idx, fractal_type, candidate_bar_idx), ...]
+    # candidate_bar_idx 是该分型成为候选时的K线索引（= fractal_idx + 1，右肩K线）
+    candidate_history = []
+    # 当前候选分型 (pending 从未被确认，且不在 replaced_candidates 中)
+    current_candidate = None
     
     for idx, f_type in fractal_points:
         
         if pending is None:
             if last_stroke_end is None:
                 pending = (idx, f_type)
+                # 记录候选历史：分型成为 pending 时就是候选状态
+                candidate_bar = idx + 1
+                if candidate_bar < n:
+                    candidate_history.append((idx, f_type, candidate_bar))
                 continue
             
             dist = idx - last_stroke_end[0]
@@ -126,12 +138,20 @@ def process_strokes(input_path, output_path, save_plot_path=None):
                         replaced_candidates.append(old)
                         strokes.append((idx, f_type))
                         last_stroke_end = (idx, f_type)
+                        # 补录候选历史：这个新分型也是一个有效的候选点
+                        candidate_bar = idx + 1
+                        if candidate_bar < n:
+                            candidate_history.append((idx, f_type, candidate_bar))
                 elif f_type == 'BOTTOM' and lows[idx] < lows[last_stroke_end[0]]:
                     if dist_to_prev >= MIN_DIST:
                         old = strokes.pop()
                         replaced_candidates.append(old)
                         strokes.append((idx, f_type))
                         last_stroke_end = (idx, f_type)
+                        # 补录候选历史
+                        candidate_bar = idx + 1
+                        if candidate_bar < n:
+                            candidate_history.append((idx, f_type, candidate_bar))
                 continue
             
             # 反向分型：检查距离
@@ -139,6 +159,10 @@ def process_strokes(input_path, output_path, save_plot_path=None):
                 continue
             
             pending = (idx, f_type)
+            # 记录候选历史
+            candidate_bar = idx + 1
+            if candidate_bar < n:
+                candidate_history.append((idx, f_type, candidate_bar))
             continue
 
         
@@ -151,17 +175,25 @@ def process_strokes(input_path, output_path, save_plot_path=None):
                 if highs[idx] > highs[pending_idx]:
                     replaced_candidates.append(pending)
                     pending = (idx, f_type)
+                    # 记录候选历史：新的 pending 替代了旧的
+                    candidate_bar = idx + 1
+                    if candidate_bar < n:
+                        candidate_history.append((idx, f_type, candidate_bar))
             elif f_type == 'BOTTOM':
                 if lows[idx] < lows[pending_idx]:
                     replaced_candidates.append(pending)
                     pending = (idx, f_type)
+                    # 记录候选历史
+                    candidate_bar = idx + 1
+                    if candidate_bar < n:
+                        candidate_history.append((idx, f_type, candidate_bar))
         else:
             # 反向分型：尝试确认pending
             if last_stroke_end is not None:
                 dist = pending_idx - last_stroke_end[0]
                 if dist < MIN_DIST:
-                    # pending太近，作为被替换记录
-                    replaced_candidates.append(pending)
+                    # pending太近，直接忽略 (不算作 Tx/Bx，因为从未生效过)
+                    # replaced_candidates.append(pending)  <-- 删除此行
                     
                     if f_type == last_stroke_end[1]:
                         if f_type == 'TOP' and highs[idx] > highs[last_stroke_end[0]]:
@@ -199,9 +231,16 @@ def process_strokes(input_path, output_path, save_plot_path=None):
                         is_valid_stroke = False
             
             if is_valid_stroke:
+                # 记录确认信息
+                stroke_confirm_info[pending_idx] = idx
+                
                 strokes.append(pending)
                 last_stroke_end = pending
                 pending = (idx, f_type)
+                # 记录候选历史：新的 pending 成为候选
+                candidate_bar = idx + 1
+                if candidate_bar < n:
+                    candidate_history.append((idx, f_type, candidate_bar))
             else:
                 # 笔无效：pending 不是真正的极值点
                 # 【方案3】只回溯一层：取消 last_stroke_end，然后直接确认当前分型
@@ -217,15 +256,20 @@ def process_strokes(input_path, output_path, save_plot_path=None):
                 pending = None
     
     # 处理最后一个pending
+    # pending 状态的分型是"候选分型"，尚未被反向分型确认
     if pending is not None:
         if last_stroke_end is not None:
             dist = pending[0] - last_stroke_end[0]
             if dist >= MIN_DIST:
-                strokes.append(pending)
+                # 距离足够但尚未被反向分型确认
+                # 这是一个有效的候选分型
+                current_candidate = pending
             else:
-                replaced_candidates.append(pending)
+                # 距离不够，不是有效候选
+                pass
         else:
-            strokes.append(pending)
+            # 没有 last_stroke_end，pending 作为第一个候选
+            current_candidate = pending
     
     # ============================================================
     # 第三步：生成输出
@@ -242,8 +286,34 @@ def process_strokes(input_path, output_path, save_plot_path=None):
     for idx, f_type in replaced_candidates:
         valid_fractals[idx] = f_type[0] + 'x'  # 'TOP' -> 'Tx', 'BOTTOM' -> 'Bx'
     
+    # 当前候选分型用 Tc/Bc
+    if current_candidate is not None:
+        idx, f_type = current_candidate
+        valid_fractals[idx] = f_type[0] + 'c'  # 'TOP' -> 'Tc', 'BOTTOM' -> 'Bc'
+    
+    # 候选分型显示列：记录在右肩K线上的候选分型
+    # 格式：Tc 或 Bc，表示该K线上应显示候选分型标记
+    candidate_display = [''] * n
+    for fractal_idx, fractal_type, display_bar_idx in candidate_history:
+        marker_type = fractal_type[0] + 'c'  # 'TOP' -> 'Tc', 'BOTTOM' -> 'Bc'
+        # 可能多个候选在同一K线上，用逗号分隔
+        if candidate_display[display_bar_idx]:
+            candidate_display[display_bar_idx] += ',' + marker_type
+        else:
+            candidate_display[display_bar_idx] = marker_type
+    # 当前候选分型也加入显示列
+    if current_candidate is not None:
+        idx, f_type = current_candidate
+        display_bar = idx + 1 if idx + 1 < n else idx
+        marker_type = f_type[0] + 'c'
+        if candidate_display[display_bar]:
+            candidate_display[display_bar] += ',' + marker_type
+        else:
+            candidate_display[display_bar] = marker_type
+    
     df['raw_fractal'] = raw_fractals
     df['valid_fractal'] = valid_fractals
+    df['candidate_display'] = candidate_display
     
     # 保存
     df.to_csv(output_path, index=False, encoding='utf-8')
@@ -268,6 +338,19 @@ def process_strokes(input_path, output_path, save_plot_path=None):
     # 合并所有标记点用于可视化
     all_markers = [(idx, f_type[0]) for idx, f_type in strokes]  # 'T' or 'B'
     all_markers += [(idx, f_type[0] + 'x') for idx, f_type in replaced_candidates]  # 'Tx' or 'Bx'
+    
+    # 添加历史候选分型 (显示在右肩K线上)
+    # candidate_history: [(fractal_idx, fractal_type, candidate_bar_idx), ...]
+    for fractal_idx, fractal_type, candidate_bar_idx in candidate_history:
+        marker_type = fractal_type[0] + 'c'  # 'TOP' -> 'Tc', 'BOTTOM' -> 'Bc'
+        all_markers.append((candidate_bar_idx, marker_type, fractal_idx))  # 第三个元素是原始分型位置
+    
+    # 当前候选分型 (最后一个 pending)
+    if current_candidate is not None:
+        idx, f_type = current_candidate
+        candidate_bar = idx + 1 if idx + 1 < n else idx
+        all_markers.append((candidate_bar, f_type[0] + 'c', idx))  # 'Tc' or 'Bc'
+    
     all_markers.sort(key=lambda x: x[0])  # 按索引排序
     
     plot_strokes(df, strokes, all_markers, col_dt, col_open, col_high, col_low, col_close, save_plot_path)
@@ -370,7 +453,14 @@ def plot_strokes(df, strokes, all_markers, col_dt, col_open, col_high, col_low, 
     
     # 调整索引到 plot_df 的范围
     plot_strokes_only = [(idx - offset, t[0]) for idx, t in strokes]  # 仅用于连线
-    plot_all_markers = [(idx - offset, t) for idx, t in all_markers]  # 用于所有标记
+    # 处理2元组和3元组格式的标记
+    plot_all_markers = []
+    for marker in all_markers:
+        if len(marker) == 3:
+            idx, t, _ = marker  # 3元组: (display_idx, type, fractal_idx)
+        else:
+            idx, t = marker  # 2元组: (idx, type)
+        plot_all_markers.append((idx - offset, t))
 
     
     dates = plot_df[col_dt]

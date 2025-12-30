@@ -259,8 +259,17 @@ def main(input_file: str):
     stroke_list = [
         (idx, row['valid_fractal']) 
         for idx, row in strokes_df.iterrows()
-        if pd.notna(row['valid_fractal'])
+        if pd.notna(row['valid_fractal']) and row['valid_fractal'] != ''
     ]
+    
+    # 读取候选分型显示列 (candidate_display)
+    # 格式为 3元组: (display_idx, type, display_idx) - 第三个元素用于兼容
+    if 'candidate_display' in strokes_df.columns:
+        for idx, row in strokes_df.iterrows():
+            if pd.notna(row['candidate_display']) and row['candidate_display'] != '':
+                # 可能有多个候选分型，用逗号分隔
+                for marker_type in row['candidate_display'].split(','):
+                    stroke_list.append((idx, marker_type.strip(), idx))
     
     # 计算技术指标
     merged_df['ema20'] = compute_ema(merged_df, 20)
