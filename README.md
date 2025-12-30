@@ -7,6 +7,7 @@
 
 1.  **多源数据适配**
     - 支持加载 Wind 导出的 Excel 数据格式 (`.xlsx`)。
+    - **[NEW] Wind API 自动获取**: 通过 `fetch_data.py` 直接调用 Wind Python API (WindPy) 获取最新数据。
     - 自动识别并适配国债期货 (TF/TL)、10年期国债 (TB10Y) 等品种数据。
     - 支持 CSV 格式输入。
 
@@ -47,11 +48,22 @@
 uv sync
 ```
 
-### 2. 运行分析
-将原始数据文件放入 `data/raw/` 目录，然后运行主程序：
+### 2. 获取数据 (可选)
+如果已安装 Wind 终端且有 Python API 权限，可自动获取配置的数据：
 
 ```bash
-# 交互式选择数据文件
+# 获取所有配置数据的最新行情 (默认近2年)
+uv run fetch_data.py
+
+# 获取指定品种
+uv run fetch_data.py TL.CFE 000510.SH
+```
+
+### 3. 运行分析
+将原始数据文件放入 `data/raw/` 目录 (或使用 `fetch_data.py` 自动获取)，然后运行主程序：
+
+```bash
+# 交互式选择数据文件 (支持多选，输入 "1 2 3")
 uv run run_pipeline.py
 
 # 直接指定文件
@@ -61,8 +73,8 @@ uv run run_pipeline.py data/raw/TL.CFE.xlsx
 echo "" | uv run run_pipeline.py
 ```
 
-### 3. 选择输入
-程序启动后会扫描 `data/raw` 目录下的 `.xlsx` / `.csv` 文件，请根据提示输入序号选择要分析的数据文件。非交互模式下自动使用默认文件。
+### 4. 选择输入
+程序启动后会扫描 `data/raw` 目录下的 `.xlsx` / `.csv` 文件，并按来源 (Wind API / 用户提供) 分组显示。支持输入多个序号进行批量处理。
 
 ## 📂 项目结构
 
@@ -87,14 +99,19 @@ tl-fractal/
 │   └── io/                  # 数据输入输出适配器
 │       ├── loader.py        # 统一数据加载入口
 │       ├── schema.py        # 数据模式定义
+│       ├── data_config.py   # [NEW] 数据源配置
 │       └── adapters/        # 数据适配器
+│           ├── wind_api_adapter.py  # [NEW] Wind API 在线获取适配器
 │           ├── wind_cfe_adapter.py  # Wind CFE 格式适配器
+│           ├── standard_adapter.py  # [NEW] 标准格式加载适配器
 │           └── base.py      # 适配器基类
 ├── docs/                    # 文档
+│   ├── wind-python-api-manual.md # Wind API 参考手册
 │   └── workflow.md          # 工作流程图
 ├── tests/                   # 测试脚本
 │   ├── test_min_dist.py     # MIN_DIST 参数对比测试
 │   └── plot_min_dist_compare.py  # 可视化对比脚本
+├── fetch_data.py            # [NEW] 数据获取脚本
 ├── run_pipeline.py          # 主程序入口
 ├── pyproject.toml           # 项目依赖配置
 └── README.md                # 项目文档
@@ -125,10 +142,15 @@ MIN_DIST = 4  # 顶底分型中间K线索引差至少为4（即中间隔3根，�
 
 ## 📋 最近更新 (2025-12-30)
 
+- **Wind API 集成**: 新增 `fetch_data.py` 和 `WindAPIAdapter`，支持自动获取 2 年历史数据。
+- **流水线增强**:
+  - `run_pipeline.py` 支持**多文件选择** (输入 `1 2 3`)。
+  - 自动识别 API 获取的数据并显示中文名称。
+  - 新增 `StandardAdapter` 处理无表头或标准格式数据。
+- **交互式图表**:
+  - 标题显示: `Ticker Name [Symbol]`。
+  - OHLC 数值精度: 统一保留 **2位小数**。
+  - 修复布局警告。
 - **笔有效性验证**: 验证每笔终点是否为区间内真正极值，无效笔回溯处理。
-- **交互式图表增强**:
-  - 左上角固定 OHLC 信息面板（日期、OHLC、涨跌幅、指标值）
-  - 以鼠标位置为中心的滚轮缩放
-  - Tx/Bx 被替换分型标记（灰色箭头）
 - **默认运行模式**: 非交互模式下自动使用 TB10Y.WI.xlsx 作为默认数据文件。
 - **技术指标模块**: 新增 `indicators.py`，支持 EMA、SMA、Bollinger Bands 计算。
