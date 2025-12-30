@@ -155,10 +155,12 @@ sequenceDiagram
         
         Note over Pipeline: Step 4: 分型与笔识别
         Pipeline->>Analysis: process_strokes()
+        Analysis->>Analysis: 记录候选分型 (Candidate History)
         Analysis->>Analysis: 过滤无效笔 + 验证极值
         
         Note over Pipeline: Step 5: 可视化
         Pipeline->>Analysis: ChartBuilder.build()
+        Analysis->>Analysis: 计算 H/L 计数 (Signal Filter)
         Analysis-->>Output: *_interactive.html
     end
     
