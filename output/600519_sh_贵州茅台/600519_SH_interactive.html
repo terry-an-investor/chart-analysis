@@ -192,6 +192,59 @@
             });
         }, { passive: false });
 
+        // --------------------------------------------------------
+        // Shift + 拖动: 垂直平移 (调整价格轴边距)
+        // --------------------------------------------------------
+        let isDragging = false;
+        let lastY = 0;
+        let currentTopMargin = 0.1;
+        let currentBottomMargin = 0.1;
+        
+        container.addEventListener('mousedown', (e) => {
+            if (e.shiftKey) {
+                isDragging = true;
+                lastY = e.clientY;
+                e.preventDefault();
+            }
+        });
+        
+        document.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+            
+            const deltaY = e.clientY - lastY;
+            lastY = e.clientY;
+            
+            // 调整边距来实现垂直平移效果
+            const marginDelta = deltaY / container.clientHeight * 0.5;
+            currentTopMargin = Math.max(0, Math.min(0.9, currentTopMargin + marginDelta));
+            currentBottomMargin = Math.max(0, Math.min(0.9, currentBottomMargin - marginDelta));
+            
+            chart.priceScale('right').applyOptions({
+                scaleMargins: {
+                    top: currentTopMargin,
+                    bottom: currentBottomMargin,
+                },
+            });
+        });
+        
+        document.addEventListener('mouseup', () => {
+            isDragging = false;
+        });
+        
+        // 双击重置视图
+        container.addEventListener('dblclick', () => {
+            currentTopMargin = 0.1;
+            currentBottomMargin = 0.1;
+            chart.priceScale('right').applyOptions({
+                scaleMargins: {
+                    top: 0.1,
+                    bottom: 0.1,
+                },
+            });
+            chart.timeScale().fitContent();
+        });
+        // --------------------------------------------------------
+
         // K 线系列
         const candlestickSeries = chart.addCandlestickSeries({
             upColor: '#26a69a',
