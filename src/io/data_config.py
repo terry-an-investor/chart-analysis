@@ -80,6 +80,12 @@ DATA_SOURCES: list[DataConfig] = [
         fields="open,high,low,close",  # 全球指数可能无成交量
         description="NASDAQ-100 Index",
     ),
+    DataConfig(
+        symbol="600415.SH",
+        name="小商品城",
+        trading_calendar="SSE",
+        description="浙江小商品城",
+    ),
 ]
 
 

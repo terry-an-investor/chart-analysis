@@ -55,8 +55,8 @@ uv sync
 # 获取所有配置数据的最新行情 (默认近2年)
 uv run fetch_data.py
 
-# 获取指定品种
-uv run fetch_data.py TL.CFE 000510.SH
+# 获取指定品种 (支持不在配置列表中的任意代码，通过 Wind API 自动识别名称)
+uv run fetch_data.py TL.CFE 600519.SH
 ```
 
 ### 3. 运行分析

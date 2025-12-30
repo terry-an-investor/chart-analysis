@@ -93,16 +93,22 @@ def main():
         list_configs()
         return 0
     
+    from src.io.data_config import DataConfig
+    
     # 确定要获取的代码
     if args.symbols:
-        # 验证代码是否存在
         configs = []
         for symbol in args.symbols:
             cfg = get_config(symbol)
             if cfg is None:
-                print(f"❌ 未知代码: {symbol}")
-                print("使用 --list 查看所有可用代码")
-                return 1
+                # 如果是未知代码，创建一个默认配置
+                print(f"  🔍 代码 {symbol} 不在预置配置中，将尝试自动识别...")
+                cfg = DataConfig(
+                    symbol=symbol,
+                    name=symbol,  # 初始名称设为代码，后面连接后尝试解析
+                    trading_calendar="SSE",  # 默认 A 股日历
+                    description="自动添加的代码"
+                )
             configs.append(cfg)
     else:
         configs = DATA_SOURCES
@@ -135,6 +141,10 @@ def main():
     
     try:
         for cfg in configs:
+            # 如果名称和代码一致（说明是自动添加的代码），尝试解析真实名称
+            if cfg.name == cfg.symbol:
+                cfg.name = adapter.get_security_name(cfg.symbol)
+            
             print(f"\n📊 {cfg.symbol} ({cfg.name})")
             try:
                 adapter.fetch_and_save(

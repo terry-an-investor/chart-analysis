@@ -213,6 +213,23 @@ class WindAPIAdapter(DataAdapter):
         
         return df[standard_cols]
     
+    def get_security_name(self, symbol: str) -> str:
+        """
+        通过 Wind API 获取资产的中文名称。
+        
+        Returns:
+            str: 资产名称，如果获取失败则返回 symbol 本身
+        """
+        self._ensure_connected()
+        try:
+            # 使用 w.wss 获取静态名称
+            data = self._wind.wss(symbol, "sec_name")
+            if data.ErrorCode == 0 and data.Data:
+                return str(data.Data[0][0])
+        except Exception:
+            pass
+        return symbol
+    
     def fetch_and_save(
         self,
         symbol: str,
