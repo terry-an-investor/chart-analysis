@@ -272,13 +272,14 @@
         });
         // --------------------------------------------------------
 
-        // 收盘价线系列
-        const candlestickSeries = chart.addLineSeries({
-            color: '#2962FF',
-            lineWidth: 2,
-            crosshairMarkerVisible: true,
-            lastValueVisible: true,
-            priceLineVisible: true,
+        // OHLC 蜡烛图系列
+        const candlestickSeries = chart.addCandlestickSeries({
+            upColor: '#26a69a',
+            downColor: '#ef5350',
+            borderUpColor: '#26a69a',
+            borderDownColor: '#ef5350',
+            wickUpColor: '#26a69a',
+            wickDownColor: '#ef5350',
         });
         candlestickSeries.setData(candlestickData);
 
@@ -363,10 +364,15 @@
                 }
             });
 
-            const closePrice = data.value !== undefined ? data.value : data.close;
+            const isUp = data.close >= data.open;
+            const colorClass = isUp ? 'up' : 'down';
+
             ohlcPanel.innerHTML = `
                 <span class="ohlc-date">${dateStr}</span>
-                <div class="ohlc-item"><span class="ohlc-label">Close:</span><span class="ohlc-value">${closePrice.toFixed(pricePrecision)}</span></div>
+                <div class="ohlc-item"><span class="ohlc-label">O:</span><span class="ohlc-value ${colorClass}">${data.open.toFixed(pricePrecision)}</span></div>
+                <div class="ohlc-item"><span class="ohlc-label">H:</span><span class="ohlc-value ${colorClass}">${data.high.toFixed(pricePrecision)}</span></div>
+                <div class="ohlc-item"><span class="ohlc-label">L:</span><span class="ohlc-value ${colorClass}">${data.low.toFixed(pricePrecision)}</span></div>
+                <div class="ohlc-item"><span class="ohlc-label">C:</span><span class="ohlc-value ${colorClass}">${data.close.toFixed(pricePrecision)}</span></div>
                 ${indicatorHtml}
             `;
         });
@@ -443,7 +449,8 @@
 
             const date = new Date(dataPoint.time * 1000);
             const dateStr = date.toISOString().split('T')[0];
-            const closePrice = dataPoint.value !== undefined ? dataPoint.value : dataPoint.close;
+            const isUp = dataPoint.close >= dataPoint.open;
+            const colorClass = isUp ? 'up' : 'down';
 
             let indicatorHtml = '';
             indicators.forEach((indicator) => {
@@ -460,7 +467,10 @@
 
             ohlcPanel.innerHTML = `
                 <span class="ohlc-date">${dateStr}</span>
-                <div class="ohlc-item"><span class="ohlc-label">Close:</span><span class="ohlc-value">${closePrice.toFixed(pricePrecision)}</span></div>
+                <div class="ohlc-item"><span class="ohlc-label">O:</span><span class="ohlc-value ${colorClass}">${dataPoint.open.toFixed(pricePrecision)}</span></div>
+                <div class="ohlc-item"><span class="ohlc-label">H:</span><span class="ohlc-value ${colorClass}">${dataPoint.high.toFixed(pricePrecision)}</span></div>
+                <div class="ohlc-item"><span class="ohlc-label">L:</span><span class="ohlc-value ${colorClass}">${dataPoint.low.toFixed(pricePrecision)}</span></div>
+                <div class="ohlc-item"><span class="ohlc-label">C:</span><span class="ohlc-value ${colorClass}">${dataPoint.close.toFixed(pricePrecision)}</span></div>
                 <span style="color:#FFEB3B; font-size:11px;">●</span>
                 ${indicatorHtml}
             `;

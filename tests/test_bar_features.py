@@ -145,6 +145,57 @@ class TestComputeBarFeatures:
         
         # movement_efficiency: |14 - 10| / 5 = 4/5 = 0.8
         assert abs(result["movement_efficiency"].iloc[0] - 0.8) < 0.001
+        
+        # open_in_body: gap = 0.1 (10%), |gap| > 0.01 → False
+        assert result["open_in_body"].iloc[0] == False
+
+    def test_close_on_extreme(self):
+        """close_on_extreme 特征测试 (|clv| > 0.9)"""
+        # Case 1: 收盘在最高点 (CLV = 1.0)
+        df_high = pd.DataFrame({
+            "open": [10.0],
+            "high": [15.0],
+            "low": [10.0],
+            "close": [15.0],  # 收盘 = 最高
+        })
+        result_high = compute_bar_features(df_high)
+        assert result_high["close_on_extreme"].iloc[0] == True
+        assert result_high["clv"].iloc[0] == 1.0
+        
+        # Case 2: 收盘在中间 (CLV = 0)
+        df_mid = pd.DataFrame({
+            "open": [10.0],
+            "high": [15.0],
+            "low": [10.0],
+            "close": [12.5],  # 收盘 = 中点
+        })
+        result_mid = compute_bar_features(df_mid)
+        assert result_mid["close_on_extreme"].iloc[0] == False
+        assert abs(result_mid["clv"].iloc[0]) < 0.1
+
+    def test_open_in_body(self):
+        """open_in_body 特征测试 (|gap| < 1%)"""
+        # Case 1: 开盘在前日收盘附近 (gap < 1%)
+        df_in = pd.DataFrame({
+            "open": [10.05],   # gap = 0.5%
+            "high": [11.0],
+            "low": [10.0],
+            "close": [10.8],
+            "preclose": [10.0],
+        })
+        result_in = compute_bar_features(df_in)
+        assert result_in["open_in_body"].iloc[0] == True
+        
+        # Case 2: 开盘跳空 (gap > 1%)
+        df_out = pd.DataFrame({
+            "open": [10.5],   # gap = 5%
+            "high": [11.0],
+            "low": [10.0],
+            "close": [10.8],
+            "preclose": [10.0],
+        })
+        result_out = compute_bar_features(df_out)
+        assert result_out["open_in_body"].iloc[0] == False
 
     def test_no_preclose(self):
         """没有 preclose 列时，不应有 gap/day_return/true_range"""

@@ -40,6 +40,10 @@ L3 - 形态分类 (Classification):
     - is_doji: body_pct < 0.25
     - is_pinbar: tail_pct > 0.66
     - shaved_top/bottom: 无影线
+    - close_on_extreme: |clv| > 0.9 (收盘在最高/最低 5% 区间)
+    
+    可选 (需要 preclose 列):
+    - open_in_body: 开盘在前日实体内 (O 在 PC 和 PC+Body 之间)
 
 Note: rel_size (Multi-Bar 特征) 将在 multi_bar_analysis.py 中实现
 """
@@ -59,6 +63,9 @@ PINBAR_TAIL_THRESHOLD = 0.66
 
 # 常量：Shaved Bar 检测容差 (允许 2% 的误差)
 SHAVED_TOLERANCE = 0.02
+
+# 常量：Close on Extreme 阈值 (|clv| > 0.9 代表收盘在极值附近)
+CLOSE_ON_EXTREME_THRESHOLD = 0.9
 
 
 def compute_bar_features(
@@ -158,6 +165,14 @@ def compute_bar_features(
         # 1.0 代表极度高效的单边行情；0.0 代表剧烈震荡但无实际位移
         safe_tr_val = np.where(true_range == 0, np.nan, true_range)
         movement_efficiency = (close - preclose).abs() / safe_tr_val
+        
+        # 9. open_in_body: 开盘是否在前日实体内
+        # 需要前日的 open 和 close 来确定前日实体边界
+        # 由于我们只有 preclose，所以这里用 preclose 作为前日实体的"中点"近似
+        # open_in_body 定义为: O 在前日收盘价附近 (|O - PC| / PC < typical_body_pct)
+        # 更简单的定义: |gap| < 0.01 (1% 以内的跳空算作"在实体内")
+        # Al Brooks 定义: 开盘在前日 K 线的实体内部，表示“延续”而非“突破”
+        open_in_body = gap.abs() < 0.01  # |gap| < 1%
 
     # --- L4: 布尔分类器 (基于 L2 阈值) ---
     
@@ -182,6 +197,10 @@ def compute_bar_features(
         ((upper_tail_pct > PINBAR_TAIL_THRESHOLD) | (lower_tail_pct > PINBAR_TAIL_THRESHOLD))
         & (body_pct < (1 - PINBAR_TAIL_THRESHOLD))
     )
+    
+    # 3. Close on Extreme: 收盘在极值附近
+    # |clv| > 0.9 表示收盘在最高/最低 5% 区间，代表极强的多空控盘
+    close_on_extreme = np.abs(clv) > CLOSE_ON_EXTREME_THRESHOLD
 
     # 构建结果 DataFrame (按层级排序)
     result_dict = {
@@ -199,6 +218,7 @@ def compute_bar_features(
             "true_range": true_range,
             "rel_true_range": rel_true_range,
             "movement_efficiency": movement_efficiency,
+            "open_in_body": open_in_body,  # 开盘在前日实体内
         })
     
     # --- L2: 形状特征 (Shape) ---
@@ -222,6 +242,7 @@ def compute_bar_features(
         # 特殊标签
         "is_doji": is_doji,
         "is_pinbar": is_pinbar,
+        "close_on_extreme": close_on_extreme,  # 收盘在极值附近
     })
     
     result = pd.DataFrame(result_dict, index=df.index)

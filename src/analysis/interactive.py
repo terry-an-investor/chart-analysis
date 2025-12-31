@@ -79,7 +79,7 @@ class ChartBuilder:
     
     def add_candlestick(self) -> 'ChartBuilder':
         """
-        添加收盘价线图层 (原为K线蜡烛图)
+        添加 K 线蜡烛图层
         
         Returns:
             self: 支持链式调用
@@ -87,7 +87,10 @@ class ChartBuilder:
         for _, row in self.df.iterrows():
             self.candlestick_data.append({
                 'time': self._timestamp(row['datetime']),
-                'value': float(row['close']),
+                'open': float(row['open']),
+                'high': float(row['high']),
+                'low': float(row['low']),
+                'close': float(row['close']),
             })
         return self
     
@@ -325,15 +328,14 @@ def plot_bar_features_chart(
     df: pd.DataFrame,
     save_path: str,
     title: Optional[str] = None,
-    rel_size_lookback: int = 20,
 ) -> None:
     """
     绘制带有 Bar Features 的交互式图表
     
     主图显示 OHLC 蜡烛图，副图显示 bar_features 指标:
     - body_pct: 实体占比
-    - close_pos: 收盘位置
-    - rel_size: 相对振幅
+    - clv: 收盘位置
+    - signed_body: 带符号实体比
     - upper_tail_pct: 上影线占比
     - lower_tail_pct: 下影线占比
     
@@ -341,7 +343,6 @@ def plot_bar_features_chart(
         df: 包含 datetime, open, high, low, close 的 DataFrame
         save_path: HTML 保存路径
         title: 图表标题
-        rel_size_lookback: rel_size 计算的回看周期
     
     Example:
         >>> from src.io import load_ohlc
@@ -357,7 +358,7 @@ def plot_bar_features_chart(
         df['datetime'] = pd.to_datetime(df['datetime'])
     
     # 计算 bar features
-    features = compute_bar_features(df, rel_size_lookback=rel_size_lookback)
+    features = compute_bar_features(df)
     
     # 动态检测价格精度
     series = df['close']
@@ -380,13 +381,15 @@ def plot_bar_features_chart(
             'close': float(row['close']),
         })
     
-    # 构建 features 数据 (按特征名分组的数组)
+    # 构建 features 数据 (使用当前 bar_features.py 中的特征)
     features_data = {}
-    for col in ['body_pct', 'close_pos', 'rel_size', 'upper_tail_pct', 'lower_tail_pct']:
-        features_data[col] = [
-            None if pd.isna(v) else float(v) 
-            for v in features[col].tolist()
-        ]
+    feature_cols = ['body_pct', 'clv', 'signed_body', 'upper_tail_pct', 'lower_tail_pct']
+    for col in feature_cols:
+        if col in features.columns:
+            features_data[col] = [
+                None if pd.isna(v) else float(v) 
+                for v in features[col].tolist()
+            ]
     
     # 生成标题
     if title is None:
