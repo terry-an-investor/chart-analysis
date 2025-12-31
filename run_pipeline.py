@@ -47,9 +47,50 @@ def find_data_files(directory: Path = DATA_RAW_DIR) -> list[Path]:
     return sorted(files, key=lambda x: x.name.lower())
 
 
+def _get_api_filenames() -> dict[str, str]:
+    """
+    轻量级读取 API 配置文件名（避免导入 pandas）。
+    
+    Returns:
+        dict: {filename: name} 映射，如 {"TL_CFE.xlsx": "30年期国债期货"}
+    """
+    import ast
+    config_path = Path(__file__).parent / "src" / "io" / "data_config.py"
+    
+    # 解析 Python 源码获取 DATA_SOURCES 列表（不执行代码）
+    try:
+        with open(config_path, 'r', encoding='utf-8') as f:
+            source = f.read()
+        tree = ast.parse(source)
+        
+        result = {}
+        for node in ast.walk(tree):
+            # 找到 DATA_SOURCES = [...] 赋值
+            if isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if isinstance(target, ast.Name) and target.id == 'DATA_SOURCES':
+                        # 遍历列表中的 DataConfig(...) 调用
+                        if isinstance(node.value, ast.List):
+                            for elt in node.value.elts:
+                                if isinstance(elt, ast.Call):
+                                    symbol = name = None
+                                    for kw in elt.keywords:
+                                        if kw.arg == 'symbol' and isinstance(kw.value, ast.Constant):
+                                            symbol = kw.value.value
+                                        if kw.arg == 'name' and isinstance(kw.value, ast.Constant):
+                                            name = kw.value.value
+                                    if symbol:
+                                        filename = symbol.replace('.', '_') + '.xlsx'
+                                        result[filename] = name or symbol
+        return result
+    except Exception:
+        return {}
+
+
 def select_file_interactive() -> list[str]:
     """交互式选择数据文件 (支持多选)"""
-    from src.io.data_config import DATA_SOURCES
+    # 使用轻量级方式获取 API 配置文件名（避免导入 pandas）
+    api_config = _get_api_filenames()
     
     files = find_data_files()
     
@@ -64,7 +105,7 @@ def select_file_interactive() -> list[str]:
         return [str(files[0])]
     
     # 区分 API 获取的文件和用户提供的文件
-    api_filenames = {cfg.filename for cfg in DATA_SOURCES}
+    api_filenames = set(api_config.keys())
     api_files = []
     user_files = []
     
@@ -107,11 +148,9 @@ def select_file_interactive() -> list[str]:
             # 找到对应的配置名称
             comment = ""
             found_config = False
-            for cfg in DATA_SOURCES:
-                if cfg.filename == f.name:
-                    comment = f"[{cfg.name}]"
-                    found_config = True
-                    break
+            if f.name in api_config:
+                comment = f"[{api_config[f.name]}]"
+                found_config = True
             
             # 如果不在配置中，尝试动态解析
             if not found_config and wind_file_pattern.match(f.name):
