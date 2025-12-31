@@ -49,6 +49,7 @@ graph TB
         PROCESS["process_ohlc.py<br/>add_kline_status()"]
         MERGE["merging.py<br/>apply_kline_merging()"]
         FRACTAL["fractals.py<br/>process_strokes()<br/>MIN_DIST=4"]
+        BAR_FEAT["bar_features.py<br/>compute_bar_features()"]
         KLINE["kline_logic.py<br/>classify_k_line_combination()"]
         INTERACTIVE["interactive.py<br/>交互式可视化"]
         
@@ -56,7 +57,9 @@ graph TB
         KLINE -.-> PROCESS
         PROCESS --> MERGE
         MERGE --> FRACTAL
+        LOADER --> BAR_FEAT
         FRACTAL --> INTERACTIVE
+        BAR_FEAT --> INTERACTIVE
     end
     
     subgraph "📂 data/processed/"
@@ -72,19 +75,23 @@ graph TB
     subgraph "📂 output/"
         PNG1[("*_merged_kline.png")]
         PNG2[("*_strokes.png")]
-        HTML[("*_interactive.html")]
+        HTML1[("*_interactive.html")]
+        HTML2[("*_bar_features.html")]
         
         MERGE --> PNG1
         FRACTAL --> PNG2
-        INTERACTIVE --> HTML
+        INTERACTIVE --> HTML1
+        INTERACTIVE --> HTML2
     end
     
     subgraph "🧪 tests/"
         TEST["test_min_dist.py<br/>MIN_DIST参数测试"]
         PLOT["plot_min_dist_compare.py<br/>MIN_DIST对比可视化"]
+        TEST_BAR["test_bar_features.py"]
         
         FRACTAL --> TEST
         FRACTAL --> PLOT
+        BAR_FEAT --> TEST_BAR
     end
     
     PIPELINE --> LOADER
@@ -99,9 +106,12 @@ graph TB
     style CSV3 fill:#e8f5e9
     style PNG1 fill:#fce4ec
     style PNG2 fill:#fce4ec
-    style HTML fill:#f3e5f5
+    style HTML1 fill:#f3e5f5
+    style HTML2 fill:#f3e5f5
     style TEST fill:#fff9c4
     style PLOT fill:#fff9c4
+    style BAR_FEAT fill:#e1bee7
+    style HTML2 fill:#e1bee7
 ```
 
 ## 数据获取与分析流程
@@ -162,6 +172,11 @@ sequenceDiagram
         Pipeline->>Analysis: ChartBuilder.build()
         Analysis->>Analysis: 计算 H/L 计数 (Signal Filter)
         Analysis-->>Output: *_interactive.html
+        
+        Note over Pipeline: Step 6: Bar Features
+        Pipeline->>Analysis: plot_bar_features_chart()
+        Analysis->>Analysis: compute_bar_features()
+        Analysis-->>Output: *_bar_features.html
     end
     
     Pipeline-->>User: ✅ 所有文件处理完成
@@ -204,10 +219,12 @@ graph LR
         FRACTAL[fractals.py]
         INTERACTIVE[interactive.py]
         INDICATORS[indicators.py]
+        BAR_FEAT[bar_features.py]
         
         PROCESS --> KLINE
         PROCESS --> SCHEMA
         INTERACTIVE --> INDICATORS
+        INTERACTIVE --> BAR_FEAT
         INTERACTIVE --> SCHEMA
     end
     
@@ -236,6 +253,7 @@ graph LR
 | **状态标记** | `OHLCData` | `process_ohlc` | `*_processed.csv` | 保存至 `processed/code_name/` 目录下 |
 | **合并** | processed.csv | `merging` | `*_merged.csv` | 绘制图表保存至 `output/code_name/` 目录下 |
 | **分型** | merged.csv | `fractals` | `*_strokes.csv` | 识别顶底分型，应用 MIN_DIST=4 过滤 |
+| **Bar特征** | `OHLCData` | `bar_features` | `*_bar_features.html` | 生成带有 PA 特征的独立图表 |
 
 ## 已知限制
 

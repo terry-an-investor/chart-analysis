@@ -324,6 +324,13 @@ def main(input_file: str):
     chart_title = f"{data.name} [{data.symbol}]"
     chart.build(str(interactive_plot), title=chart_title)
     
+    # -----------------------------------------------------
+    # 新增: 生成 Bar Features 图表 (使用原始数据)
+    # -----------------------------------------------------
+    from src.analysis import plot_bar_features_chart
+    bar_features_plot = ticker_output_dir / f"{base_name}_bar_features.html"
+    plot_bar_features_chart(data.df, str(bar_features_plot), title=f"{data.name} - Bar Features")
+    
     print("\n" + "=" * 60)
     print("流水线完成！")
     print("=" * 60)
@@ -336,6 +343,7 @@ def main(input_file: str):
     print(f"    - {merged_plot.name}  (合并后K线图)")
     print(f"    - {strokes_plot.name}       (笔端点标记图)")
     print(f"    - {interactive_plot.name}   (交互式HTML图表) 🆕")
+    print(f"    - {bar_features_plot.name}  (K线特征图表) 🆕")
 
 
 if __name__ == "__main__":

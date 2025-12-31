@@ -269,17 +269,20 @@ class ChartBuilder:
         
         # 加载模板文件
         template_path = Path(__file__).parent / 'templates' / 'chart_template.html'
-        with open(template_path, 'r', encoding='utf-8') as f:
-            template_content = f.read()
         
-        # 使用 str.replace() 替换占位符 (避免与 JS 模板字符串冲突)
-        html_content = template_content
-        html_content = html_content.replace('{{title}}', title)
-        html_content = html_content.replace('{{candlestick_json}}', candlestick_json)
-        html_content = html_content.replace('{{indicators_json}}', indicators_json)
-        html_content = html_content.replace('{{strokes_json}}', strokes_json)
-        html_content = html_content.replace('{{markers_json}}', markers_json)
-        html_content = html_content.replace('{{precision}}', str(precision))
+        # 使用 Jinja2 渲染模板
+        from jinja2 import Template
+        with open(template_path, 'r', encoding='utf-8') as f:
+            template = Template(f.read())
+        
+        html_content = template.render(
+            title=title,
+            candlestick_json=candlestick_json,
+            indicators_json=indicators_json,
+            strokes_json=strokes_json,
+            markers_json=markers_json,
+            precision=precision
+        )
         
         # 保存文件
         Path(save_path).parent.mkdir(parents=True, exist_ok=True)
@@ -316,3 +319,102 @@ def plot_interactive_kline(
     
     if save_path:
         chart.build(save_path)
+
+
+def plot_bar_features_chart(
+    df: pd.DataFrame,
+    save_path: str,
+    title: Optional[str] = None,
+    rel_size_lookback: int = 20,
+) -> None:
+    """
+    绘制带有 Bar Features 的交互式图表
+    
+    主图显示 OHLC 蜡烛图，副图显示 bar_features 指标:
+    - body_pct: 实体占比
+    - close_pos: 收盘位置
+    - rel_size: 相对振幅
+    - upper_tail_pct: 上影线占比
+    - lower_tail_pct: 下影线占比
+    
+    Args:
+        df: 包含 datetime, open, high, low, close 的 DataFrame
+        save_path: HTML 保存路径
+        title: 图表标题
+        rel_size_lookback: rel_size 计算的回看周期
+    
+    Example:
+        >>> from src.io import load_ohlc
+        >>> from src.analysis import plot_bar_features_chart
+        >>> ohlc = load_ohlc('data/raw/000510_SH.xlsx')
+        >>> plot_bar_features_chart(ohlc.df, 'output/bar_features.html')
+    """
+    from .bar_features import compute_bar_features
+    
+    # 确保 datetime 列存在且是 datetime 类型
+    df = df.copy()
+    if 'datetime' in df.columns:
+        df['datetime'] = pd.to_datetime(df['datetime'])
+    
+    # 计算 bar features
+    features = compute_bar_features(df, rel_size_lookback=rel_size_lookback)
+    
+    # 动态检测价格精度
+    series = df['close']
+    precision = 2
+    for decimals in range(2, 5):
+        rounded = series.round(decimals)
+        if (series - rounded).abs().max() < 1e-9:
+            precision = decimals
+            break
+    
+    # 构建 OHLC 数据
+    candlestick_data = []
+    for _, row in df.iterrows():
+        ts = int(pd.Timestamp(row['datetime']).timestamp())
+        candlestick_data.append({
+            'time': ts,
+            'open': float(row['open']),
+            'high': float(row['high']),
+            'low': float(row['low']),
+            'close': float(row['close']),
+        })
+    
+    # 构建 features 数据 (按特征名分组的数组)
+    features_data = {}
+    for col in ['body_pct', 'close_pos', 'rel_size', 'upper_tail_pct', 'lower_tail_pct']:
+        features_data[col] = [
+            None if pd.isna(v) else float(v) 
+            for v in features[col].tolist()
+        ]
+    
+    # 生成标题
+    if title is None:
+        symbol = df['symbol'].iloc[0] if 'symbol' in df.columns else ''
+        title = f'Bar Features - {symbol}'
+    
+    # 序列化为 JSON
+    candlestick_json = json.dumps(candlestick_data)
+    features_json = json.dumps(features_data)
+    
+    # 加载模板
+    template_path = Path(__file__).parent / 'templates' / 'bar_features_template.html'
+    
+    # 使用 Jinja2 渲染模板
+    from jinja2 import Template
+    with open(template_path, 'r', encoding='utf-8') as f:
+        template = Template(f.read())
+    
+    html_content = template.render(
+        title=title,
+        candlestick_json=candlestick_json,
+        features_json=features_json,
+        precision=precision
+    )
+    
+    # 保存文件
+    Path(save_path).parent.mkdir(parents=True, exist_ok=True)
+    with open(save_path, 'w', encoding='utf-8') as f:
+        f.write(html_content)
+    
+    print(f"Bar Features 图表已保存至: {save_path}")

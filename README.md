@@ -27,14 +27,14 @@
     - 基于"重要高低点" (Major Swing High/Low) 逻辑。
     - 识别潜在的市场关键位。
 
-5.  **📈 交互式可视化 (Interactive Charts)**
-    - **Lightweight Charts 引擎**：使用 TradingView 开源图表库生成高性能 HTML 交互图表。
-    - **功能完备**：
-        - 鼠标滚轮缩放（以鼠标位置为中心）。
-        - 左上角固定 OHLC 数据面板（日期、开高低收、涨跌幅）。
-        - 顶底分型标注 (T/B) 及被替换分型 (Tx/Bx) 可视化。
-        - 笔连线和技术指标叠加 (EMA20)。
-        - 自动 Y 轴缩放、Crosshair 十字线。
+6.  **📊 Bar Features K 线特征 (New)**
+    - **多维特征提取**: 提取单根 K 线的六大关键特征:
+        - `bar_dir`: 方向 (Bull/Bear/Doji)
+        - `body_pct`: 实体占比
+        - `close_pos`: 收盘位置
+        - `rel_size`: 相对振幅
+        - `upper_tail_pct/lower_tail_pct`: 上下影线占比
+    - **独立可视化**: 生成 `_bar_features.html`，不仅显示 OHLC 蜡烛图，还以副图形式展示特征曲线，辅助 Price Action 分析。
 
 ## 🛠️ 安装与运行
 
@@ -91,15 +91,21 @@ tl-fractal/
 │       └── 600519_sh_贵州茅台/
 ├── output/                  # 生成的图表结果（按 ticker_name 分类）
 │   ├── tl_30年期国债期货/
+│   │   ├── *_interactive.html  # 交互式 K 线图
+│   │   └── *_bar_features.html # [NEW] K 线特征图
 │   └── 600519_sh_贵州茅台/
 ├── src/
 │   ├── analysis/            # 核心分析逻辑
+│   │   ├── bar_features.py  # [NEW] K 线特征提取 (Al Brooks PA)
 │   │   ├── fractals.py      # 分型与笔识别算法 (MIN_DIST=4)
 │   │   ├── merging.py       # K线包含关系合并
 │   │   ├── interactive.py   # Lightweight Charts 交互式绘图模块
 │   │   ├── indicators.py    # 技术指标计算 (EMA, SMA, Bollinger)
 │   │   ├── kline_logic.py   # K线状态分类
 │   │   └── process_ohlc.py  # 原始数据处理
+│   │   └── templates/       # [NEW] HTML 图表模板
+│   │       ├── chart_template.html
+│   │       └── bar_features_template.html
 │   └── io/                  # 数据输入输出适配器
 │       ├── loader.py        # 统一数据加载入口
 │       ├── schema.py        # 数据模式定义
@@ -113,6 +119,7 @@ tl-fractal/
 │   ├── wind-python-api-manual.md # Wind API 参考手册
 │   └── workflow.md          # 工作流程图
 ├── tests/                   # 测试脚本
+│   ├── test_bar_features.py # [NEW] 特征提取单元测试
 │   ├── test_min_dist.py     # MIN_DIST 参数对比测试
 │   └── plot_min_dist_compare.py  # 可视化对比脚本
 ├── fetch_data.py            # [NEW] 数据获取脚本
@@ -146,16 +153,19 @@ MIN_DIST = 4  # 顶底分型中间K线索引差至少为4（即中间隔3根，�
   - **Bc** (粉红圆圈): 底分型候选 (Bottom Candidate)
     - 触发: 中间 K 线 Low 最低，由右肩确认
 
-## 📋 最近更新 (2025-12-30)
+## 📋 最近更新 (2025-12-31)
 
+- **[NEW] Bar Features 模块**:
+  - 新增 `src.analysis.bar_features`，基于 Al Brooks PA 理论提取单根 K 线特征。
+  - 新增 `plot_bar_features_chart`，生成 OHLC 蜡烛图 + 副图特征曲线的交互式图表。
+  - 流水线集成：`run_pipeline.py` 默认生成 `_bar_features.html`。
+- **可视化升级**:
+  - `interactive.py` 迁移至 **Jinja2** 模板引擎，渲染更稳定。
+  - 修复 HTML 模板中 JavaScript 占位符替换的潜在问题。
 - **分型系统调整**: 
   - 恢复原始分型定义（纯 High/Low 比较），移除收盘价突破实体的限制。
   - 移除 Hn/Ln 计数逻辑，直接显示 **Tc/Bc** 分型标记。
 - **数据质量优化**: 自动过滤 high/low 为 NaN 的无效数据行（如节假日占位符）。
-- **动态代码获取**: `fetch_data.py` 支持获取**任意**代码 (股票/基金/指数等)，无需预先配置。
-- **智能名称解析与缓存**:
-  - 自动调用 `w.wss` 解析资产中文名。
-  - 新增 `security_names.json` 缓存机制，保护 Wind API 调用额度。
-- **目录结构优化**: 输出目录由纯代码变为 `代码_名称` 格式（如 `600415_sh_小商品城`）。
-- **动态精度检测**: 交互式图表根据数据自动适配小数位数（股票2位，国债收益率4位）。
+- **动态代码获取**: `fetch_data.py` 支持获取**任意**代码 (股票/基金/指数等)。
+- **目录结构优化**: 输出目录由纯代码变为 `代码_名称` 格式。
 - **技术指标模块**: 新增 `indicators.py`，支持 EMA、SMA、Bollinger Bands。
