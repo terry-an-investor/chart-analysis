@@ -9,6 +9,7 @@ data_schema.py
     - low: 最低价 (float64)
     - close: 收盘价 (float64)
     - volume: 成交量 (float64, 可选)
+    - preclose: 昨收/前收盘价 (float64, 可选) - 用于计算涨跌幅、gap 等
 """
 
 from dataclasses import dataclass
@@ -23,9 +24,13 @@ COL_HIGH = "high"
 COL_LOW = "low"
 COL_CLOSE = "close"
 COL_VOLUME = "volume"
+COL_PRECLOSE = "preclose"  # 可选: 昨收/前收盘价
 
 # 必需列
 REQUIRED_COLUMNS = [COL_DATETIME, COL_OPEN, COL_HIGH, COL_LOW, COL_CLOSE]
+
+# 可选列 (如果存在则会被使用)
+OPTIONAL_COLUMNS = [COL_VOLUME, COL_PRECLOSE]
 
 
 @dataclass

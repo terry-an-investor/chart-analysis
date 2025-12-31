@@ -26,13 +26,13 @@ class DataConfig:
         symbol: Wind代码 (如 'TL.CFE', '000510.SH')
         name: 资产名称
         trading_calendar: 交易日历代码 (CFFE/SSE/Nasdaq等)
-        fields: 获取的字段列表，默认 OHLCV
+        fields: 获取的字段列表，默认 OHLCV + pre_close
         description: 数据描述
     """
     symbol: str
     name: str
     trading_calendar: str = "SSE"
-    fields: str = "open,high,low,close,volume"
+    fields: str = "open,high,low,close,volume,pre_close"  # 新增 pre_close
     description: str = ""
     
     @property
