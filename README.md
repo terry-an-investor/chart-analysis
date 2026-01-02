@@ -28,9 +28,17 @@
     - 识别潜在的市场关键位。
 
 5.  **Market Structure 市场结构 (Phase 2)**
-    - **Swing Detection**: 基于 N-bar 确认法则识别 Swing High/Low (HH, HL, LH, LL)。
-    - **Major Levels**: 自动计算并维护结构性支撑/阻力位 (Major High/Low 阶梯线)。
-    - **可视化恢复滞后**: 图表上将标记回溯到实际极值时间点，消除视觉滞后。
+    - **Swing Detection (V2)**: 
+        - 采用 **Breakout Confirmation** 逻辑：只有当价格跌破前低时，才确认上方的高点为 Major Swing High。
+        - 相比传统分型，能有效过滤噪音，提供更稳健的结构性阻力/支撑位。
+    - **Climax Reversal**: 
+        - 识别 **V-Top/V-Bottom** (急转模式)：捕捉 "Bull Climax + Bear Reversal" 的反转形态。
+    - **Consecutive Reversal**:
+        - 识别 **渐进式反转**：当出现连续 3+ 根同向 K 线后，回溯标记该段行情的起点。
+    - **可视化**: 
+        - 生成 `*_structure.html`。
+        - 包含 Major High/Low 阶梯线、基础分型点 (HH/HL) 以及反转标记 (▼/▲)。
+        - 采用**诚实滞后**显示 (No Shift)，模拟真实的盘中决策体验。
 
 6.  **📊 Bar Features K 线特征 (New)**
     - **多维特征提取**: 提取单根 K 线特征，辅助 Price Action (Al Brooks) 分析:

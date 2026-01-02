@@ -261,7 +261,7 @@ graph LR
 | **合并** | processed.csv | `merging` | `*_merged.csv` | 绘制图表保存至 `output/code_name/` 目录下 |
 | **分型** | merged.csv | `fractals` | `*_strokes.csv` | 识别顶底分型，应用 MIN_DIST=4 过滤 |
 | **Bar特征** | `OHLCData` | `bar_features` | `*_bar_features.html` | 生成 PA 特征图表 (含 Urgency, Buying/Selling Pressure) |
-| **市场结构** | `OHLCData` | `structure` | `*_structure.html` | 生成 Swing Point & Major Levels 图表(Phase 2) |
+| **市场结构** | `OHLCData` | `structure` | `*_structure.html` | 生成 Major Levels (V2) & Reversal (Climax/Consecutive) 图表 |
 
 ## 已知限制
 
