@@ -14,8 +14,11 @@ _legacy 模块
 """
 
 from .kline_logic import BarRelationship, classify_k_line_combination
+from .process_ohlc import add_kline_status, process_and_save
 
 __all__ = [
     "BarRelationship",
     "classify_k_line_combination",
+    "add_kline_status",
+    "process_and_save",
 ]

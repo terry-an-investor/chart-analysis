@@ -5,7 +5,7 @@ This document outlines the strategic progression from basic feature extraction t
 ## Phase 1: Micro-Analysis (Bar Features) [Current]
 **Goal**: Quantify the immediate properties of specific bars. "The Atoms of Price Action"
 *   **Module**: `src/analysis/bar_features.py`
-*   **Status**: ~90% Complete.
+*   **Status**: 100% Complete (Legacy logic unified).
 
 ### 1.1 Single-Bar Features (The Physics)
 *   **Scope**: N=1 (Internal properties).
@@ -30,9 +30,9 @@ This document outlines the strategic progression from basic feature extraction t
 *   **Deliverables**:
     *   [x] **P0: EMA Gravity**: Distance to EMA, Gap Bars, Magnetic Pull.
     *   [x] **Trend Streak**: Consecutive trend bars.
-    *   [ ] **P1: Volatility**: ATR, Relative Volatility.
+    *   [x] **P1: Volatility**: ATR-based normalization (Implemented in prompt guidelines).
 
-## Phase 2: The Map (Market Structure) [Next]
+## Phase 2: The Map (Market Structure) [Current]
 **Goal**: Identify the "Terrain" where the battle is fighting. "Where are we?"
 *   **Module**: `src/analysis/structure.py` (New)
 *   **Key Concepts**:
