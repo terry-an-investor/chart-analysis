@@ -279,6 +279,157 @@ def classify_swings(
     return df
 
 
+def classify_swings_v2(
+    df: pd.DataFrame,
+    tolerance_pct: float = PRICE_TOLERANCE_PCT
+) -> pd.DataFrame:
+    """
+    [V2] 突破确认逻辑 (Breakout Confirmation) 版本的结构分类状态机。
+    
+    与 V1 的核心差异:
+    --------------------------------------
+    V1: 每次出现 Swing Point 就更新对应的 Major Level。
+    V2: Major Level 只有在价格突破后才确认更新。
+    
+    Al Brooks 核心原则:
+    - Major Low 的上移，必须由"价格创出新高 (New High)"来确认。
+    - Major High 的下移，必须由"价格创出新低 (New Low)"来确认。
+    
+    这意味着: 在没有创新高之前，中间所有的 Higher Lows 都只是 Minor Swings (次级折返)，
+    不应改变结构性的支撑位。
+    
+    输出列 (同 V1):
+    - swing_type: str (HH, LH, HL, LL, DT, DB)
+    - major_high: float (当前生效的结构性阻力位)
+    - major_low: float (当前生效的结构性支撑位)
+    - trend_bias: int (当前趋势倾向: 1=Bull, -1=Bear, 0=Neutral)
+    """
+    if 'swing_high_confirmed' not in df.columns:
+        df = detect_swings(df)
+    
+    df = df.copy()
+    
+    # 初始化输出列
+    df['swing_type'] = pd.Series([np.nan] * len(df), dtype=object)
+    df['major_high'] = np.nan
+    df['major_low'] = np.nan
+    df['trend_bias'] = 0
+    
+    # 状态变量 - 用于 HH/HL/LH/LL 分类
+    last_h_price = -np.inf
+    last_l_price = np.inf
+    
+    # "候选" Swing Points (Candidates) - 等待确认
+    candidate_major_low = np.nan
+    candidate_major_high = np.nan
+    
+    # 当前生效的结构位 (Active Structure Levels)
+    first_valid_high = df['high'].dropna().iloc[0] if df['high'].notna().any() else np.nan
+    first_valid_low = df['low'].dropna().iloc[0] if df['low'].notna().any() else np.nan
+    active_major_high = first_valid_high
+    active_major_low = first_valid_low
+    
+    curr_bias = 0  # 0=Neutral, 1=Bull, -1=Bear
+    
+    # 提取事件流
+    high_indices = df.index[df['swing_high_confirmed']].tolist()
+    low_indices = df.index[df['swing_low_confirmed']].tolist()
+    events = sorted(
+        [(i, 'high') for i in high_indices] + 
+        [(i, 'low') for i in low_indices], 
+        key=lambda x: x[0]
+    )
+    
+    for idx, event_type in events:
+        if event_type == 'high':
+            price = df.at[idx, 'swing_high_price']
+            
+            # 1. 标记 Swing Type (几何属性)
+            if last_h_price > 0:
+                price_diff_pct = abs(price - last_h_price) / last_h_price
+                if price_diff_pct <= tolerance_pct:
+                    label = 'DT'
+                elif price > last_h_price:
+                    label = 'HH'
+                else:
+                    label = 'LH'
+            else:
+                label = 'HH'
+            
+            last_h_price = price
+            df.at[idx, 'swing_type'] = label
+            
+            # 更新候选阻力位
+            candidate_major_high = price
+            
+            # --- Bull Breakout Check ---
+            if curr_bias == 1:
+                if price > active_major_high:
+                    if pd.notna(candidate_major_low) and candidate_major_low > active_major_low:
+                        active_major_low = candidate_major_low
+                    active_major_high = price
+            elif curr_bias == -1:
+                if price > active_major_high:
+                    curr_bias = 1
+                    if pd.notna(candidate_major_low):
+                        active_major_low = candidate_major_low
+                    active_major_high = price
+            else:
+                active_major_high = price
+                if label == 'HH':
+                    curr_bias = 1
+
+        elif event_type == 'low':
+            price = df.at[idx, 'swing_low_price']
+            
+            # 1. 标记 Swing Type
+            if last_l_price < np.inf:
+                price_diff_pct = abs(price - last_l_price) / last_l_price
+                if price_diff_pct <= tolerance_pct:
+                    label = 'DB'
+                elif price < last_l_price:
+                    label = 'LL'
+                else:
+                    label = 'HL'
+            else:
+                label = 'LL'
+            
+            last_l_price = price
+            df.at[idx, 'swing_type'] = label
+            
+            # 更新候选支撑位
+            candidate_major_low = price
+            
+            # --- Bear Breakout Check ---
+            if curr_bias == -1:
+                if price < active_major_low:
+                    if pd.notna(candidate_major_high) and candidate_major_high < active_major_high:
+                        active_major_high = candidate_major_high
+                    active_major_low = price
+            elif curr_bias == 1:
+                if price < active_major_low:
+                    curr_bias = -1
+                    if pd.notna(candidate_major_high):
+                        active_major_high = candidate_major_high
+                    active_major_low = price
+            else:
+                active_major_low = price
+                if label == 'LL':
+                    curr_bias = -1
+                
+        # 记录状态
+        df.at[idx, 'major_high'] = active_major_high
+        df.at[idx, 'major_low'] = active_major_low
+        df.at[idx, 'trend_bias'] = curr_bias
+
+    # 状态填充
+    df['major_high'] = df['major_high'].ffill()
+    df['major_low'] = df['major_low'].ffill()
+    df['trend_bias'] = df['trend_bias'].ffill().fillna(0).astype(int)
+    
+    return df
+
+
 def compute_trend_state(
     df: pd.DataFrame,
     lookback: int = 2
@@ -423,5 +574,198 @@ def add_structure_features(
     for col in feature_cols:
         if col in features.columns:
             df[f'{prefix}{col}'] = features[col].values
+    
+    return df
+
+
+# ============================================================
+# Climax Detector (Phase 2.3)
+# ============================================================
+
+def detect_climax_reversal(
+    df: pd.DataFrame,
+    atr_multiplier: float = 2.0,
+    lookback: int = 5
+) -> pd.DataFrame:
+    """
+    识别 V 型反转 (Climax Reversal): 高潮顶/底 + 强力反转棒。
+    
+    这是对 Window=5 Fractals 的补充，用于捕捉那些因为形态太尖锐
+    而未被常规 Swing 检测到的反转点。
+    
+    Al Brooks 定义:
+    - Climax = 巨型趋势棒 (Body > 2*ATR) 或 连续 N 根同向趋势棒
+    - Reversal = 紧接着的强力反向棒 (吞没/大实体反向)
+    - V-Top: Bull Climax + Bear Reversal → 标记即时阻力位
+    - V-Bottom: Bear Climax + Bull Reversal → 标记即时支撑位
+    
+    Args:
+        df: 包含 OHLC 数据的 DataFrame
+        atr_multiplier: 判断 Climax Bar 的 ATR 倍数阈值
+        lookback: 计算 ATR 的回看周期
+    
+    Returns:
+        pd.DataFrame: 追加以下列:
+        - is_climax_top: bool (V型顶确认)
+        - is_climax_bottom: bool (V型底确认)
+        - climax_top_price: float (顶部价格)
+        - climax_bottom_price: float (底部价格)
+    """
+    df = df.copy()
+    
+    # 计算 ATR (Average True Range)
+    high = df['high']
+    low = df['low']
+    close = df['close']
+    prev_close = close.shift(1)
+    
+    tr = pd.concat([
+        high - low,
+        (high - prev_close).abs(),
+        (low - prev_close).abs()
+    ], axis=1).max(axis=1)
+    atr = tr.rolling(window=lookback, min_periods=1).mean()
+    
+    # 计算 K 线属性
+    body_size = (close - df['open']).abs()
+    is_bull = close > df['open']
+    is_bear = close < df['open']
+    
+    # 识别 Climax Bar (巨型趋势棒)
+    is_climax_bar = body_size > (atr * atr_multiplier)
+    is_bull_climax = is_climax_bar & is_bull
+    is_bear_climax = is_climax_bar & is_bear
+    
+    # 识别 Reversal Bar (强力反向棒)
+    # 简化版: 大阴线跟着大阳线 / 大阳线跟着大阴线
+    prev_is_bull = is_bull.shift(1).fillna(False)
+    prev_is_bear = is_bear.shift(1).fillna(False)
+    prev_body = body_size.shift(1).fillna(0)
+    
+    # Bear Reversal: 前一根是大阳线，当前是大阴线且吞没
+    is_bear_reversal = (
+        prev_is_bull & 
+        is_bear & 
+        (body_size > prev_body * 0.5) &  # 至少覆盖前一根一半
+        (close < df['open'].shift(1))    # 收盘低于前一根开盘
+    )
+    
+    # Bull Reversal: 前一根是大阴线，当前是大阳线且吞没
+    is_bull_reversal = (
+        prev_is_bear & 
+        is_bull & 
+        (body_size > prev_body * 0.5) &
+        (close > df['open'].shift(1))
+    )
+    
+    # V-Top: 前一根是 Bull Climax，当前是 Bear Reversal
+    # 或者：前两根中有 Bull Climax，当前是 Bear Reversal
+    prev_bull_climax = is_bull_climax.shift(1).fillna(False)
+    is_v_top = prev_bull_climax & is_bear_reversal
+    
+    # V-Bottom: 前一根是 Bear Climax，当前是 Bull Reversal
+    prev_bear_climax = is_bear_climax.shift(1).fillna(False)
+    is_v_bottom = prev_bear_climax & is_bull_reversal
+    
+    # 记录价格
+    df['is_climax_top'] = is_v_top
+    df['is_climax_bottom'] = is_v_bottom
+    
+    # 顶部价格 = 前一根 (Climax Bar) 的 High
+    df['climax_top_price'] = np.where(
+        is_v_top,
+        high.shift(1),
+        np.nan
+    )
+    
+    # 底部价格 = 前一根 (Climax Bar) 的 Low
+    df['climax_bottom_price'] = np.where(
+        is_v_bottom,
+        low.shift(1),
+        np.nan
+    )
+    
+    return df
+
+
+def detect_consecutive_reversal(
+    df: pd.DataFrame,
+    consecutive_count: int = 3
+) -> pd.DataFrame:
+    """
+    识别渐进式反转 (Consecutive Bars Reversal)。
+    
+    当出现连续 N 根同向 K 线后，回溯标记该段行情的起点作为反转点。
+    这是对 Climax Reversal 的补充，用于捕捉"温水煮青蛙"式的渐进反转。
+    
+    Al Brooks 逻辑:
+    - 连续 3+ 根阴线 = Bear Breakout 确认 → 回溯标记最后的 Swing High
+    - 连续 3+ 根阳线 = Bull Breakout 确认 → 回溯标记最后的 Swing Low
+    
+    Args:
+        df: 包含 OHLC 数据的 DataFrame
+        consecutive_count: 连续同向 K 线的阈值 (默认 3)
+    
+    Returns:
+        pd.DataFrame: 追加以下列:
+        - consecutive_bear_start: bool (连续阴线起点)
+        - consecutive_bull_start: bool (连续阳线起点)
+        - consecutive_top_price: float (渐进顶部价格)
+        - consecutive_bottom_price: float (渐进底部价格)
+    """
+    df = df.copy()
+    
+    close = df['close']
+    open_price = df['open']
+    high = df['high']
+    low = df['low']
+    
+    is_bull = close > open_price
+    is_bear = close < open_price
+    
+    # 计算连续阴线/阳线计数
+    # 使用 groupby 技巧：当方向变化时创建新组
+    bear_groups = (~is_bear).cumsum()
+    bull_groups = (~is_bull).cumsum()
+    
+    # 计算每组内的累计计数
+    df['bear_streak'] = is_bear.groupby(bear_groups).cumsum()
+    df['bull_streak'] = is_bull.groupby(bull_groups).cumsum()
+    
+    # 识别连续阴线达到阈值的时刻 (确认点)
+    is_bear_confirmed = df['bear_streak'] == consecutive_count
+    is_bull_confirmed = df['bull_streak'] == consecutive_count
+    
+    # 回溯找到连续阴线开始前的最后一根阳线高点
+    # 逻辑：从确认点往前数 consecutive_count 根
+    df['consecutive_bear_start'] = False
+    df['consecutive_bull_start'] = False
+    df['consecutive_top_price'] = np.nan
+    df['consecutive_bottom_price'] = np.nan
+    
+    n = len(df)
+    
+    # 处理连续阴线确认 → 标记渐进顶部
+    for i in df.index[is_bear_confirmed]:
+        pos = df.index.get_loc(i)
+        # 往前找 consecutive_count 根
+        start_pos = pos - consecutive_count
+        if start_pos >= 0:
+            # 在开始位置之前找最近的高点
+            # 简化：直接用连续阴线开始前那根的 High
+            prev_idx = df.index[start_pos]
+            df.at[i, 'consecutive_bear_start'] = True
+            df.at[i, 'consecutive_top_price'] = high.iloc[start_pos]
+    
+    # 处理连续阳线确认 → 标记渐进底部
+    for i in df.index[is_bull_confirmed]:
+        pos = df.index.get_loc(i)
+        start_pos = pos - consecutive_count
+        if start_pos >= 0:
+            df.at[i, 'consecutive_bull_start'] = True
+            df.at[i, 'consecutive_bottom_price'] = low.iloc[start_pos]
+    
+    # 清理临时列
+    df.drop(['bear_streak', 'bull_streak'], axis=1, inplace=True)
     
     return df

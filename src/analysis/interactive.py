@@ -280,17 +280,13 @@ class ChartBuilder:
         n = len(self.df)
         
         # -------------------------------------------------------------------------
-        # 1. 重构 Major High/Low: 将阶梯线提前 window 个位置
-        # 原本在 Index=T+window 变化的 level，提前到 Index=T 变化
+        # 1. Major High/Low 阶梯线 (诚实滞后版)
+        # 不做 shift，线条在确认时刻 (T+window) 才变化，模拟真实交易体验
         # -------------------------------------------------------------------------
         
-        # 将 major_high/low shift 回去 window 个位置
-        adjusted_major_high = major_high.shift(-swing_window)
-        adjusted_major_low = major_low.shift(-swing_window)
-        
-        # 对于末尾 window 个 NaN，向前填充
-        adjusted_major_high = adjusted_major_high.ffill()
-        adjusted_major_low = adjusted_major_low.ffill()
+        # 直接使用原始数据，不做提前处理
+        adjusted_major_high = major_high
+        adjusted_major_low = major_low
         
         # 绘制 Major High 阶梯线 (红色)
         major_high_data = []
@@ -339,7 +335,8 @@ class ChartBuilder:
             })
         
         # -------------------------------------------------------------------------
-        # 2. Swing Point 标记: 回溯到实际极值位置 (Index - window)
+        # 2. Swing Point 标记 (诚实滞后版)
+        # 标记显示在确认时刻，不做回溯，与实盘体验一致
         # -------------------------------------------------------------------------
         if swing_types is not None:
             for i, (orig_idx, row) in enumerate(self.df.iterrows()):
@@ -351,13 +348,7 @@ class ChartBuilder:
                 if pd.isna(swing_type) or swing_type is None:
                     continue
                 
-                # 【关键】回溯到实际极值位置
-                actual_idx = i - swing_window
-                if actual_idx < 0 or actual_idx >= n:
-                    continue
-                
-                actual_row = self.df.iloc[actual_idx]
-                
+                # 诚实滞后版：标记直接显示在确认时刻的 K 线上
                 # 根据类型确定位置和颜色
                 if swing_type in ('HH', 'LH', 'DT'):
                     position = 'aboveBar'
@@ -369,12 +360,59 @@ class ChartBuilder:
                 color = color_map.get(swing_type, '#FFFFFF')
                 
                 self.markers.append({
-                    'time': self._timestamp(actual_row['datetime']),
+                    'time': self._timestamp(row['datetime']),
                     'position': position,
                     'color': color,
                     'shape': 'circle',
                     'text': swing_type,
                     'size': 1
+                })
+        
+        return self
+    
+    def add_reversal_markers(
+        self,
+        consecutive_bear_start: pd.Series,
+        consecutive_bull_start: pd.Series,
+        consecutive_top_price: pd.Series,
+        consecutive_bottom_price: pd.Series,
+    ) -> 'ChartBuilder':
+        """
+        添加渐进式反转标记 (Consecutive Reversal Markers)
+        
+        在确认连续 N 根同向 K 线时，标记回溯的顶/底部价格
+        """
+        for i, (orig_idx, row) in enumerate(self.df.iterrows()):
+            # Bear Top (连续阴线确认的顶部)
+            try:
+                is_bear_top = consecutive_bear_start.loc[orig_idx] if orig_idx in consecutive_bear_start.index else False
+            except:
+                is_bear_top = consecutive_bear_start.iloc[i] if i < len(consecutive_bear_start) else False
+            
+            if is_bear_top:
+                self.markers.append({
+                    'time': self._timestamp(row['datetime']),
+                    'position': 'aboveBar',
+                    'color': '#FF1744',  # 亮红色
+                    'shape': 'arrowDown',
+                    'text': '▼',
+                    'size': 2
+                })
+            
+            # Bull Bottom (连续阳线确认的底部)
+            try:
+                is_bull_bot = consecutive_bull_start.loc[orig_idx] if orig_idx in consecutive_bull_start.index else False
+            except:
+                is_bull_bot = consecutive_bull_start.iloc[i] if i < len(consecutive_bull_start) else False
+            
+            if is_bull_bot:
+                self.markers.append({
+                    'time': self._timestamp(row['datetime']),
+                    'position': 'belowBar',
+                    'color': '#00E676',  # 亮绿色
+                    'shape': 'arrowUp',
+                    'text': '▲',
+                    'size': 2
                 })
         
         return self

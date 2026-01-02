@@ -228,34 +228,43 @@ def main(input_file: str):
     ticker_output_dir = OUTPUT_DIR / dir_name
     ticker_output_dir.mkdir(parents=True, exist_ok=True)
     
-    # Step 2: 生成市场结构图表 (Structure Chart)
+    # Step 2: 生成市场结构图表 (V2 + Reversal Markers)
     print(f"\n[Step 2/2] 生成市场结构交互式图表...")
-    from src.analysis import plot_structure_chart
+    from src.analysis.structure import detect_swings, classify_swings_v2, detect_consecutive_reversal
+    from src.analysis.indicators import compute_ema
+    from src.analysis.interactive import ChartBuilder
     
+    df = data.df.copy()
+    df['datetime'] = pd.to_datetime(df['datetime'])
+    
+    # 摆动点检测 + V2 分类 (突破确认逻辑)
+    df_with_swings = detect_swings(df, window=5)
+    result = classify_swings_v2(df_with_swings)
+    
+    # 渐进式反转检测 (连续 N 根阴/阳线)
+    result = detect_consecutive_reversal(result, consecutive_count=3)
+    
+    ema20 = compute_ema(df, period=20)
+    
+    # 生成图表
     structure_plot = ticker_output_dir / f"{base_name}_structure.html"
-    plot_structure_chart(
-        data.df, 
-        save_path=str(structure_plot),
-        swing_window=5,
-        title=f"{data.name} - Market Structure"
+    chart = ChartBuilder(result)
+    chart.add_candlestick()
+    chart.add_indicator('EMA20', ema20, '#FFA500', line_width=1)
+    chart.add_structure_levels(
+        major_high=result['major_high'],
+        major_low=result['major_low'],
+        swing_types=result['swing_type'],
+        swing_window=5
     )
-    
-    # # [已注释] 生成原始交互式图表 (OHLC + EMA20)
-    # from src.analysis import ChartBuilder, compute_ema
-    # interactive_plot = ticker_output_dir / f"{base_name}_interactive.html"
-    # raw_df = data.df.copy()
-    # raw_df['datetime'] = pd.to_datetime(raw_df['datetime'])
-    # raw_df['ema20'] = compute_ema(raw_df, 20)
-    # chart = ChartBuilder(raw_df)
-    # chart.add_candlestick()
-    # chart.add_indicator('EMA20', raw_df['ema20'], '#FFA500')
-    # chart_title = f"{data.name} [{data.symbol}]"
-    # chart.build(str(interactive_plot), title=chart_title)
-    
-    # # [已注释] 生成 Bar Features 图表
-    # from src.analysis import plot_bar_features_chart
-    # bar_features_plot = ticker_output_dir / f"{base_name}_bar_features.html"
-    # plot_bar_features_chart(data.df, str(bar_features_plot), title=f"{data.name} - Bar Features")
+    # [已禁用] 渐进式反转标记 (太过杂乱，暂不显示)
+    # chart.add_reversal_markers(
+    #     consecutive_bear_start=result['consecutive_bear_start'],
+    #     consecutive_bull_start=result['consecutive_bull_start'],
+    #     consecutive_top_price=result['consecutive_top_price'],
+    #     consecutive_bottom_price=result['consecutive_bottom_price'],
+    # )
+    chart.build(str(structure_plot), title=f"{data.name} - Market Structure")
     
     print("\n" + "=" * 60)
     print("流水线完成！")
