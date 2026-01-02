@@ -4,7 +4,7 @@ analysis/process_ohlc.py
 """
 
 import pandas as pd
-from .kline_logic import classify_k_line_combination
+from ._legacy.kline_logic import classify_k_line_combination
 from ..io.schema import OHLCData, COL_DATETIME, COL_HIGH, COL_LOW
 
 
