@@ -35,12 +35,18 @@ This document outlines the strategic progression from basic feature extraction t
 ## Phase 2: The Map (Market Structure) [Current]
 **Goal**: Identify the "Terrain" where the battle is fighting. "Where are we?"
 *   **Module**: `src/analysis/structure.py` (New)
+*   **Status**: 75% Complete (Core structure logic implemented).
 *   **Key Concepts**:
     1.  **Swing Points**: Robust Fractal Highs/Lows identification (The anchor points).
-    2.  **Market Cycle Classification**:
+        *   **Status**: [Done]
+        *   **Implementation**: `detect_swings()` with N-bar lagged confirmation & `classify_swings()` (HH/HL/LH/LL).
+    2.  **"Always In" State**: A discrete state machine determining the probabilistic direction (Long/Short/Neutral).
+        *   **Status**: [Done]
+        *   **Implementation**: `compute_trend_state()` based on Swing High/Low sequence.
+    3.  **Market Cycle Classification**:
+        *   **Status**: [In Progress]
         *   **Trend**: Broad Channel vs. Tight Channel (Spike).
         *   **Trading Range**: Balanced areas, Barbwire.
-    3.  **"Always In" State**: A discrete state machine determining the probabilistic direction (Long/Short/Neutral).
 
 ## Phase 3: The Setup (Pattern Recognition)
 **Goal**: Identify specific tactical opportunities within the structure. "Is there an entry?"

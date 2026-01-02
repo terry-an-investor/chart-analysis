@@ -50,6 +50,7 @@ graph TB
         MERGE["merging.py<br/>apply_kline_merging()"]
         FRACTAL["fractals.py<br/>process_strokes()<br/>MIN_DIST=4"]
         BAR_FEAT["bar_features.py<br/>compute_bar_features()"]
+        STRUCTURE["structure.py<br/>detect_swings()<br/>Market Structure"]
         KLINE["kline_logic.py<br/>classify_k_line_combination()"]
         INTERACTIVE["interactive.py<br/>交互式可视化"]
         
@@ -60,6 +61,7 @@ graph TB
         LOADER --> BAR_FEAT
         FRACTAL --> INTERACTIVE
         BAR_FEAT --> INTERACTIVE
+        STRUCTURE --> INTERACTIVE
     end
     
     subgraph "📂 data/processed/"
@@ -77,11 +79,13 @@ graph TB
         PNG2[("*_strokes.png")]
         HTML1[("*_interactive.html")]
         HTML2[("*_bar_features.html")]
+        HTML3[("*_structure.html")]
         
         MERGE --> PNG1
         FRACTAL --> PNG2
         INTERACTIVE --> HTML1
         INTERACTIVE --> HTML2
+        INTERACTIVE --> HTML3
     end
     
     subgraph "🧪 tests/"
@@ -108,6 +112,7 @@ graph TB
     style PNG2 fill:#fce4ec
     style HTML1 fill:#f3e5f5
     style HTML2 fill:#f3e5f5
+    style HTML3 fill:#f3e5f5
     style TEST fill:#fff9c4
     style PLOT fill:#fff9c4
     style BAR_FEAT fill:#e1bee7
@@ -220,11 +225,13 @@ graph LR
         INTERACTIVE[interactive.py]
         INDICATORS[indicators.py]
         BAR_FEAT[bar_features.py]
+        STRUCTURE[structure.py]
         
         PROCESS --> KLINE
         PROCESS --> SCHEMA
         INTERACTIVE --> INDICATORS
         INTERACTIVE --> BAR_FEAT
+        INTERACTIVE --> STRUCTURE
         INTERACTIVE --> SCHEMA
     end
     
@@ -254,10 +261,10 @@ graph LR
 | **合并** | processed.csv | `merging` | `*_merged.csv` | 绘制图表保存至 `output/code_name/` 目录下 |
 | **分型** | merged.csv | `fractals` | `*_strokes.csv` | 识别顶底分型，应用 MIN_DIST=4 过滤 |
 | **Bar特征** | `OHLCData` | `bar_features` | `*_bar_features.html` | 生成 PA 特征图表 (含 Urgency, Buying/Selling Pressure) |
+| **市场结构** | `OHLCData` | `structure` | `*_structure.html` | 生成 Swing Point & Major Levels 图表(Phase 2) |
 
 ## 已知限制
 
 | 品种 | 问题 | 解决方案 |
 |------|------|----------|
-| `TB10Y.WI` | Wind API 不返回 `open` 字段 | 请从 Wind 终端手动下载数据 |
 
