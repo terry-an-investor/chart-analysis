@@ -283,10 +283,10 @@
         });
         candlestickSeries.setData(candlestickData);
 
-        // 设置标记 (分型点) - 当前已禁用
-        // if (markersData.length > 0) {
-        //     candlestickSeries.setMarkers(markersData);
-        // }
+        // 设置标记 (Swing Points / 分型点)
+        if (markersData.length > 0) {
+            candlestickSeries.setMarkers(markersData);
+        }
 
         // 笔连线 (已禁用)
         // if (strokesData.length > 0) {

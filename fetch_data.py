@@ -58,7 +58,7 @@ def parse_args():
         "--start",
         type=str,
         default=None,
-        help="起始日期 (YYYY-MM-DD)，默认2年前"
+        help="起始日期 (YYYY-MM-DD)，默认5年前"
     )
     
     parser.add_argument(
@@ -113,17 +113,17 @@ def main():
     else:
         configs = DATA_SOURCES
     
-    # 默认日期范围: end_date 为昨天 (当前交易日未结束), start_date 为两年前
+    # 默认日期范围: end_date 为昨天 (当前交易日未结束), start_date 为五年前
+    # 注意: 如果证券上市时间不足5年，Wind API 会自动从上市日开始返回数据
     yesterday = datetime.now() - timedelta(days=1)
     end_date = args.end or yesterday.strftime("%Y-%m-%d")
     
     if args.start:
         start_date = args.start
     else:
-        # 默认从 end_date 往前推 2 年 (730天)
-        # 注意: 这里简单按天数推算，Wind 的 ED-2Y 是按日历年
+        # 默认从 end_date 往前推 5 年 (约 1826 天)
         end_dt = datetime.strptime(end_date, "%Y-%m-%d")
-        start_date = (end_dt - timedelta(days=730)).strftime("%Y-%m-%d")
+        start_date = (end_dt - timedelta(days=365 * 5)).strftime("%Y-%m-%d")
     
     print("=" * 60)
     print("Wind API 数据获取")

@@ -93,27 +93,43 @@ def detect_swings(
     
     # 使用 center=True 偷看未来，找出几何结构
     # rolling_max[t] 实际上用到了 [t-N, t+N] 范围内的数据
-    rolling_max = highs.rolling(window=scan_window, center=True).max()
-    rolling_min = lows.rolling(window=scan_window, center=True).min()
+    # 使用 min_periods=1 来处理数据中的 NaN 值 (如休市日缺失数据)
+    rolling_max = highs.rolling(window=scan_window, center=True, min_periods=1).max()
+    rolling_min = lows.rolling(window=scan_window, center=True, min_periods=1).min()
     
     # 标记几何高低点
     # 注意: 如果相邻多根 K 线价格相同，rolling 会让它们都等于 max/min
     # 我们需要只取第一个作为有效摆动点
-    is_high_raw = (highs == rolling_max)
-    is_low_raw = (lows == rolling_min)
+    # 同时需要过滤掉本身是 NaN 的数据点
+    is_high_raw = (highs == rolling_max) & highs.notna()
+    is_low_raw = (lows == rolling_min) & lows.notna()
     
     # 去重: 只保留连续相同高点中的第一个
     # 通过检查前一根是否也是高点来实现: 如果前一根也是高点，则当前不算
-    is_high_raw = is_high_raw & (~is_high_raw.shift(1).fillna(False))
-    is_low_raw = is_low_raw & (~is_low_raw.shift(1).fillna(False))
+    # 使用 numpy 操作避免 pandas FutureWarning
+    is_high_arr = is_high_raw.to_numpy()
+    is_low_arr = is_low_raw.to_numpy()
+    
+    prev_high_arr = np.roll(is_high_arr, 1)
+    prev_high_arr[0] = False  # 第一个元素没有前一个
+    prev_low_arr = np.roll(is_low_arr, 1)
+    prev_low_arr[0] = False
+    
+    is_high_dedup = is_high_arr & ~prev_high_arr
+    is_low_dedup = is_low_arr & ~prev_low_arr
     
     # -------------------------------------------------------------------------
     # 2. 信号层确认 (Signal Confirmation) - 消除未来函数
     # -------------------------------------------------------------------------
     # 关键步骤: 将 Index=T 的信号平移到 Index=T+window
     # 这意味着我们在 T+window 时刻才"确认"之前那个是高点
-    df['swing_high_confirmed'] = is_high_raw.shift(window).fillna(False)
-    df['swing_low_confirmed'] = is_low_raw.shift(window).fillna(False)
+    shifted_high_arr = np.roll(is_high_dedup, window)
+    shifted_high_arr[:window] = False  # 前 window 个元素没有确认
+    shifted_low_arr = np.roll(is_low_dedup, window)
+    shifted_low_arr[:window] = False
+    
+    df['swing_high_confirmed'] = shifted_high_arr
+    df['swing_low_confirmed'] = shifted_low_arr
     
     # -------------------------------------------------------------------------
     # 3. 价值保留 (Value Retention)
@@ -167,8 +183,8 @@ def classify_swings(
     
     df = df.copy()
     
-    # 初始化输出列
-    df['swing_type'] = np.nan     # HH, LH, HL, LL, DT, DB
+    # 初始化输出列 (使用 object 类型避免类型警告)
+    df['swing_type'] = pd.Series([np.nan] * len(df), dtype=object)
     df['major_high'] = np.nan
     df['major_low'] = np.nan
     

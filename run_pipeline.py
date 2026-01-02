@@ -228,37 +228,40 @@ def main(input_file: str):
     ticker_output_dir = OUTPUT_DIR / dir_name
     ticker_output_dir.mkdir(parents=True, exist_ok=True)
     
-    # Step 2: 生成交互式图表 (原始 OHLC + EMA20)
-    print(f"\n[Step 2/2] 生成交互式 HTML 图表...")
-    from src.analysis import ChartBuilder, compute_ema
-    interactive_plot = ticker_output_dir / f"{base_name}_interactive.html"
+    # Step 2: 生成市场结构图表 (Structure Chart)
+    print(f"\n[Step 2/2] 生成市场结构交互式图表...")
+    from src.analysis import plot_structure_chart
     
-    # 使用原始数据
-    raw_df = data.df.copy()
-    raw_df['datetime'] = pd.to_datetime(raw_df['datetime'])
+    structure_plot = ticker_output_dir / f"{base_name}_structure.html"
+    plot_structure_chart(
+        data.df, 
+        save_path=str(structure_plot),
+        swing_window=5,
+        title=f"{data.name} - Market Structure"
+    )
     
-    # 计算 EMA20
-    raw_df['ema20'] = compute_ema(raw_df, 20)
+    # # [已注释] 生成原始交互式图表 (OHLC + EMA20)
+    # from src.analysis import ChartBuilder, compute_ema
+    # interactive_plot = ticker_output_dir / f"{base_name}_interactive.html"
+    # raw_df = data.df.copy()
+    # raw_df['datetime'] = pd.to_datetime(raw_df['datetime'])
+    # raw_df['ema20'] = compute_ema(raw_df, 20)
+    # chart = ChartBuilder(raw_df)
+    # chart.add_candlestick()
+    # chart.add_indicator('EMA20', raw_df['ema20'], '#FFA500')
+    # chart_title = f"{data.name} [{data.symbol}]"
+    # chart.build(str(interactive_plot), title=chart_title)
     
-    # 构建图表
-    chart = ChartBuilder(raw_df)
-    chart.add_candlestick()
-    chart.add_indicator('EMA20', raw_df['ema20'], '#FFA500')
-    
-    chart_title = f"{data.name} [{data.symbol}]"
-    chart.build(str(interactive_plot), title=chart_title)
-    
-    # 生成 Bar Features 图表
-    from src.analysis import plot_bar_features_chart
-    bar_features_plot = ticker_output_dir / f"{base_name}_bar_features.html"
-    plot_bar_features_chart(data.df, str(bar_features_plot), title=f"{data.name} - Bar Features")
+    # # [已注释] 生成 Bar Features 图表
+    # from src.analysis import plot_bar_features_chart
+    # bar_features_plot = ticker_output_dir / f"{base_name}_bar_features.html"
+    # plot_bar_features_chart(data.df, str(bar_features_plot), title=f"{data.name} - Bar Features")
     
     print("\n" + "=" * 60)
     print("流水线完成！")
     print("=" * 60)
     print("生成文件:")
-    print(f"  - {interactive_plot}  (交互式OHLC图表)")
-    print(f"  - {bar_features_plot}  (K线特征图表)")
+    print(f"  - {structure_plot}  (市场结构图表)")
 
 
 if __name__ == "__main__":

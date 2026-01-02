@@ -249,6 +249,136 @@ class ChartBuilder:
         
         return self
     
+    def add_structure_levels(
+        self, 
+        major_high: pd.Series, 
+        major_low: pd.Series,
+        swing_types: Optional[pd.Series] = None,
+        swing_high_prices: Optional[pd.Series] = None,
+        swing_low_prices: Optional[pd.Series] = None,
+        swing_window: int = 5,
+    ) -> 'ChartBuilder':
+        """
+        添加市场结构层级 (Major High/Low 阶梯线 + Swing 标记)
+        
+        关键设计：可视化时"恢复滞后"
+        - structure.py 中确认时刻在 Index=T+window
+        - 但可视化标记应该放回到实际极值点 Index=T
+        - 阶梯线也从 Index=T 开始显示新的 level
+        
+        Args:
+            major_high: Major High 价格序列 (前向填充的阶梯数据)
+            major_low: Major Low 价格序列
+            swing_types: Swing Point 类型 (HH, HL, LH, LL, DT, DB)
+            swing_high_prices: 确认时刻记录的 Swing High 价格
+            swing_low_prices: 确认时刻记录的 Swing Low 价格
+            swing_window: 摆动点确认窗口 (用于恢复滞后)
+        
+        Returns:
+            self: 支持链式调用
+        """
+        n = len(self.df)
+        
+        # -------------------------------------------------------------------------
+        # 1. 重构 Major High/Low: 将阶梯线提前 window 个位置
+        # 原本在 Index=T+window 变化的 level，提前到 Index=T 变化
+        # -------------------------------------------------------------------------
+        
+        # 将 major_high/low shift 回去 window 个位置
+        adjusted_major_high = major_high.shift(-swing_window)
+        adjusted_major_low = major_low.shift(-swing_window)
+        
+        # 对于末尾 window 个 NaN，向前填充
+        adjusted_major_high = adjusted_major_high.ffill()
+        adjusted_major_low = adjusted_major_low.ffill()
+        
+        # 绘制 Major High 阶梯线 (红色)
+        major_high_data = []
+        for i, (orig_idx, row) in enumerate(self.df.iterrows()):
+            try:
+                value = adjusted_major_high.loc[orig_idx] if orig_idx in adjusted_major_high.index else None
+            except:
+                value = adjusted_major_high.iloc[i] if i < len(adjusted_major_high) else None
+            
+            if pd.notna(value):
+                major_high_data.append({
+                    'time': self._timestamp(row['datetime']),
+                    'value': float(value)
+                })
+        
+        if major_high_data:
+            self.indicators.append({
+                'name': 'Major High',
+                'data': major_high_data,
+                'color': '#FF5252',
+                'lineWidth': 1,
+                'lineStyle': 2
+            })
+        
+        # 绘制 Major Low 阶梯线 (绿色)
+        major_low_data = []
+        for i, (orig_idx, row) in enumerate(self.df.iterrows()):
+            try:
+                value = adjusted_major_low.loc[orig_idx] if orig_idx in adjusted_major_low.index else None
+            except:
+                value = adjusted_major_low.iloc[i] if i < len(adjusted_major_low) else None
+            
+            if pd.notna(value):
+                major_low_data.append({
+                    'time': self._timestamp(row['datetime']),
+                    'value': float(value)
+                })
+        
+        if major_low_data:
+            self.indicators.append({
+                'name': 'Major Low',
+                'data': major_low_data,
+                'color': '#69F0AE',
+                'lineWidth': 1,
+                'lineStyle': 2
+            })
+        
+        # -------------------------------------------------------------------------
+        # 2. Swing Point 标记: 回溯到实际极值位置 (Index - window)
+        # -------------------------------------------------------------------------
+        if swing_types is not None:
+            for i, (orig_idx, row) in enumerate(self.df.iterrows()):
+                try:
+                    swing_type = swing_types.loc[orig_idx] if orig_idx in swing_types.index else None
+                except (KeyError, TypeError):
+                    swing_type = swing_types.iloc[i] if i < len(swing_types) else None
+                
+                if pd.isna(swing_type) or swing_type is None:
+                    continue
+                
+                # 【关键】回溯到实际极值位置
+                actual_idx = i - swing_window
+                if actual_idx < 0 or actual_idx >= n:
+                    continue
+                
+                actual_row = self.df.iloc[actual_idx]
+                
+                # 根据类型确定位置和颜色
+                if swing_type in ('HH', 'LH', 'DT'):
+                    position = 'aboveBar'
+                    color_map = {'HH': '#00E676', 'LH': '#FF8A80', 'DT': '#FFD54F'}
+                else:
+                    position = 'belowBar'
+                    color_map = {'HL': '#00E676', 'LL': '#FF8A80', 'DB': '#FFD54F'}
+                
+                color = color_map.get(swing_type, '#FFFFFF')
+                
+                self.markers.append({
+                    'time': self._timestamp(actual_row['datetime']),
+                    'position': position,
+                    'color': color,
+                    'shape': 'circle',
+                    'text': swing_type,
+                    'size': 1
+                })
+        
+        return self
+    
     def build(self, save_path: str, title: Optional[str] = None) -> None:
         """
         组装并保存为 HTML
@@ -421,3 +551,76 @@ def plot_bar_features_chart(
         f.write(html_content)
     
     print(f"Bar Features 图表已保存至: {save_path}")
+
+
+def plot_structure_chart(
+    df: pd.DataFrame,
+    save_path: Optional[str] = None,
+    swing_window: int = 5,
+    title: Optional[str] = None,
+    symbol: Optional[str] = None,
+) -> None:
+    """
+    绘制带有市场结构 (Market Structure) 的交互式图表
+    
+    主图显示:
+    - OHLC 蜡烛图
+    - Major High/Low 阶梯线 (结构性阻力/支撑位)
+    - Swing Point 标记 (HH/HL/LH/LL/DT/DB)
+    - EMA20 指标线
+    
+    Args:
+        df: 包含 datetime, open, high, low, close 的 DataFrame
+        save_path: HTML 保存路径，默认为 output/structure/{symbol}_structure.html
+        swing_window: 摆动点确认周期 (默认 5)
+        title: 图表标题
+    
+    Example:
+        >>> from src.io import load_ohlc
+        >>> from src.analysis import plot_structure_chart
+        >>> ohlc = load_ohlc('data/raw/600519_SH.xlsx')
+        >>> plot_structure_chart(ohlc.df)  # 自动保存到 output/structure/
+    """
+    from .structure import compute_market_structure
+    from .indicators import compute_ema
+    
+    # 确保 datetime 列存在且是 datetime 类型
+    df = df.copy()
+    if 'datetime' in df.columns:
+        df['datetime'] = pd.to_datetime(df['datetime'])
+    
+    # 计算市场结构
+    structure = compute_market_structure(df, swing_window=swing_window)
+    
+    # 计算 EMA20 (compute_ema 接受 DataFrame)
+    ema20 = compute_ema(df, period=20)
+    
+    # 获取 symbol 用于生成默认路径和标题
+    if symbol is None:
+        symbol = df['symbol'].iloc[0] if 'symbol' in df.columns else 'unknown'
+    
+    # 生成默认保存路径 (保存到股票自己的子目录下，与其他输出保持一致)
+    if save_path is None:
+        # 格式: output/{symbol_lowercase}/{SYMBOL}_structure.html
+        symbol_lower = symbol.lower().replace('.', '_')
+        symbol_upper = symbol.upper().replace('.', '_')
+        save_path = f'output/{symbol_lower}/{symbol_upper}_structure.html'
+    
+    # 生成标题
+    if title is None:
+        title = f'Market Structure - {symbol}'
+    
+    # 构建图表
+    chart = ChartBuilder(df)
+    chart.add_candlestick()
+    chart.add_indicator('EMA20', ema20, '#FFA500', line_width=1)
+    chart.add_structure_levels(
+        major_high=structure['major_high'],
+        major_low=structure['major_low'],
+        swing_types=structure['swing_type'],
+        swing_high_prices=structure['swing_high_price'],
+        swing_low_prices=structure['swing_low_price'],
+        swing_window=swing_window,  # 传入用于恢复滞后
+    )
+    chart.build(save_path, title=title)
+
