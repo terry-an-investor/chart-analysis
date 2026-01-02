@@ -55,6 +55,7 @@ class ChartBuilder:
         self.candlestick_data = []
         self.indicators = []  # [(name, data, color), ...]
         self.stroke_lines = []  # 笔的线段数据
+        self.lines = []  # 通用线段数据 (如结构线)
         self.markers = []  # 标记点数据
         
         # 确保 datetime 列存在且是 datetime 类型
@@ -257,30 +258,64 @@ class ChartBuilder:
         swing_high_prices: Optional[pd.Series] = None,
         swing_low_prices: Optional[pd.Series] = None,
         swing_window: int = 5,
+        secondary_item_high: Optional[pd.Series] = None,
+        secondary_item_low: Optional[pd.Series] = None,
     ) -> 'ChartBuilder':
         """
         添加市场结构层级 (Major High/Low 阶梯线 + Swing 标记)
         
-        关键设计：可视化时"恢复滞后"
-        - structure.py 中确认时刻在 Index=T+window
-        - 但可视化标记应该放回到实际极值点 Index=T
-        - 阶梯线也从 Index=T 开始显示新的 level
+        关键设计：可视化时"恢复滞后" (Honest Lag)
         
         Args:
-            major_high: Major High 价格序列 (前向填充的阶梯数据)
-            major_low: Major Low 价格序列
-            swing_types: Swing Point 类型 (HH, HL, LH, LL, DT, DB)
-            swing_high_prices: 确认时刻记录的 Swing High 价格
-            swing_low_prices: 确认时刻记录的 Swing Low 价格
-            swing_window: 摆动点确认窗口 (用于恢复滞后)
-        
-        Returns:
-            self: 支持链式调用
+            major_high: 主要的高点阻力线 (如 Fused Active Resistance)
+            major_low: 主要的低点支撑线
+            secondary_item_high: 次要高点 (如 V2 Major High), 显示为虚线
+            secondary_item_low: 次要低点
+            ...
         """
         n = len(self.df)
         
+        # 1. 绘制次要结构线 (虚线, 放在底层)
+        if secondary_item_high is not None:
+            # 同样应用honest lag逻辑 (shift=0, 但我们这里假设输入已经是aligned的)
+            # 为了简单，直接画
+            line_sec_high = []
+            for idx, row in self.df.iterrows():
+                if idx in secondary_item_high.index:
+                    val = secondary_item_high.loc[idx]
+                    if pd.notna(val):
+                        line_sec_high.append({
+                            'time': self._timestamp(row['datetime']),
+                            'value': val
+                        })
+            self.lines.append({
+                'data': line_sec_high,
+                'color': '#EF5350', # 浅红 (更淡?)
+                'width': 1,
+                'style': 'Dashed', # 虚线
+                'title': 'V2 Major High'
+            })
+            
+        if secondary_item_low is not None:
+            line_sec_low = []
+            for idx, row in self.df.iterrows():
+                if idx in secondary_item_low.index:
+                    val = secondary_item_low.loc[idx]
+                    if pd.notna(val):
+                        line_sec_low.append({
+                            'time': self._timestamp(row['datetime']),
+                            'value': val
+                        })
+            self.lines.append({
+                'data': line_sec_low,
+                'color': '#66BB6A', # 浅绿
+                'width': 1,
+                'style': 'Dashed',
+                'title': 'V2 Major Low'
+            })
+
         # -------------------------------------------------------------------------
-        # 1. Major High/Low 阶梯线 (诚实滞后版)
+        # 2. Major High/Low 阶梯线 (诚实滞后版)
         # 不做 shift，线条在确认时刻 (T+window) 才变化，模拟真实交易体验
         # -------------------------------------------------------------------------
         
@@ -296,11 +331,13 @@ class ChartBuilder:
             except:
                 value = adjusted_major_high.iloc[i] if i < len(adjusted_major_high) else None
             
-            if pd.notna(value):
-                major_high_data.append({
-                    'time': self._timestamp(row['datetime']),
-                    'value': float(value)
-                })
+            # 关键修改：使用 float('nan') 生成 JS NaN，Lightweight Charts 会将其渲染为断点(Gap)
+            # 注意: None -> null -> 0 (会导致垂直掉落线)
+            json_val = float(value) if pd.notna(value) else float('nan')
+            major_high_data.append({
+                'time': self._timestamp(row['datetime']),
+                'value': json_val
+            })
         
         if major_high_data:
             self.indicators.append({
@@ -319,11 +356,12 @@ class ChartBuilder:
             except:
                 value = adjusted_major_low.iloc[i] if i < len(adjusted_major_low) else None
             
-            if pd.notna(value):
-                major_low_data.append({
-                    'time': self._timestamp(row['datetime']),
-                    'value': float(value)
-                })
+            # Use NaN for Gap
+            json_val = float(value) if pd.notna(value) else float('nan')
+            major_low_data.append({
+                'time': self._timestamp(row['datetime']),
+                'value': json_val
+            })
         
         if major_low_data:
             self.indicators.append({
@@ -436,6 +474,7 @@ class ChartBuilder:
         candlestick_json = json.dumps(self.candlestick_data)
         indicators_json = json.dumps(self.indicators)
         strokes_json = json.dumps(self.stroke_lines)
+        lines_json = json.dumps(self.lines)
         markers_json = json.dumps(self.markers)
         
         # 加载模板文件
@@ -451,6 +490,7 @@ class ChartBuilder:
             candlestick_json=candlestick_json,
             indicators_json=indicators_json,
             strokes_json=strokes_json,
+            lines_json=lines_json,
             markers_json=markers_json,
             precision=precision
         )

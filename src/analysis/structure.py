@@ -638,8 +638,8 @@ def detect_climax_reversal(
     
     # 识别 Reversal Bar (强力反向棒)
     # 简化版: 大阴线跟着大阳线 / 大阳线跟着大阴线
-    prev_is_bull = is_bull.shift(1).fillna(False)
-    prev_is_bear = is_bear.shift(1).fillna(False)
+    prev_is_bull = is_bull.astype(float).shift(1).fillna(0.0).astype(bool)
+    prev_is_bear = is_bear.astype(float).shift(1).fillna(0.0).astype(bool)
     prev_body = body_size.shift(1).fillna(0)
     
     # Bear Reversal: 前一根是大阳线，当前是大阴线且吞没
@@ -660,11 +660,11 @@ def detect_climax_reversal(
     
     # V-Top: 前一根是 Bull Climax，当前是 Bear Reversal
     # 或者：前两根中有 Bull Climax，当前是 Bear Reversal
-    prev_bull_climax = is_bull_climax.shift(1).fillna(False)
+    prev_bull_climax = is_bull_climax.astype(float).shift(1).fillna(0.0).astype(bool)
     is_v_top = prev_bull_climax & is_bear_reversal
     
     # V-Bottom: 前一根是 Bear Climax，当前是 Bull Reversal
-    prev_bear_climax = is_bear_climax.shift(1).fillna(False)
+    prev_bear_climax = is_bear_climax.astype(float).shift(1).fillna(0.0).astype(bool)
     is_v_bottom = prev_bear_climax & is_bull_reversal
     
     # 记录价格
@@ -767,5 +767,223 @@ def detect_consecutive_reversal(
     
     # 清理临时列
     df.drop(['bear_streak', 'bull_streak'], axis=1, inplace=True)
+    
+    return df
+
+
+def merge_structure_with_events(
+    df_structure: pd.DataFrame,
+    df_events_climax: Optional[pd.DataFrame] = None,
+    df_events_consecutive: Optional[pd.DataFrame] = None
+) -> pd.DataFrame:
+    """
+    [Phase 2.4] 融合层 (Fusion Layer): 将 Climax/Reversal 事件融入市场结构
+    
+    职责:
+    当检测到 V-Top 或 连续反转 等强力信号时，
+    强制更新 Major High/Low，覆盖常规 V2 逻辑。
+    
+    解决问题:
+    "信号已出但结构线滞后" - 让结构线对 Price Action 做出即时反应。
+    
+    逻辑:
+    1. 基础: 使用 classify_swings_v2 计算的 major_high/low。
+    2. 覆盖: 
+        - V-Top / Consecutive Bear Top -> 强制将 major_high 压低。
+        - V-Bottom / Consecutive Bull Bottom -> 强制将 major_low 拉高。
+    3. 广播: 将新的结构位 forward fill 到未来，直到被新的结构点更新。
+    
+    Args:
+        df_structure: 包含 major_high/low 的 V2 结构数据
+        df_events_climax:包含 is_climax_top 等列的数据 (可选)
+        df_events_consecutive: 包含 consecutive_bear_start 等列的数据 (可选)
+        
+    Returns:
+        pd.DataFrame: 包含 adjusted_major_high, adjusted_major_low 的数据
+    """
+    df = df_structure.copy()
+    
+    # 1. 初始 adjusted 列为原始结构
+    df['adjusted_major_high'] = df['major_high']
+    df['adjusted_major_low'] = df['major_low']
+    
+    # 2. 合并事件数据
+    # 为了处理方便，我们将关键事件映射到统一的 "override_high" 和 "override_low" 列
+    df['override_high_price'] = np.nan
+    df['override_low_price'] = np.nan
+    
+    # Climax Reversal 事件
+    if df_events_climax is not None:
+        if 'is_climax_top' in df_events_climax.columns:
+            mask = df_events_climax['is_climax_top'].fillna(False)
+            df.loc[mask, 'override_high_price'] = df_events_climax.loc[mask, 'climax_top_price']
+            
+        if 'is_climax_bottom' in df_events_climax.columns:
+            mask = df_events_climax['is_climax_bottom'].fillna(False)
+            df.loc[mask, 'override_low_price'] = df_events_climax.loc[mask, 'climax_bottom_price']
+
+    # Consecutive Reversal 事件 (优先级更高，或者取更紧的那个)
+    if df_events_consecutive is not None:
+        if 'consecutive_bear_start' in df_events_consecutive.columns:
+            mask = df_events_consecutive['consecutive_bear_start'].fillna(False)
+            # 如果已有 override，取更低(更紧)的；如果没有，直接填入
+            current_vals = df.loc[mask, 'override_high_price']
+            new_vals = df_events_consecutive.loc[mask, 'consecutive_top_price']
+            df.loc[mask, 'override_high_price'] = np.where(
+                current_vals.isna(), 
+                new_vals, 
+                np.minimum(current_vals, new_vals)
+            )
+            
+        if 'consecutive_bull_start' in df_events_consecutive.columns:
+            mask = df_events_consecutive['consecutive_bull_start'].fillna(False)
+            current_vals = df.loc[mask, 'override_low_price']
+            new_vals = df_events_consecutive.loc[mask, 'consecutive_bottom_price']
+            df.loc[mask, 'override_low_price'] = np.where(
+                current_vals.isna(),
+                new_vals,
+                np.maximum(current_vals, new_vals)
+            )
+    
+    # 3. 核心覆盖逻辑 (Sequential Processing Reqd for correct propagation)
+    # 因为主要的变化是稀疏的，且 V2 结构也是分段的，我们可以迭代更新。
+    # 为了保持向量化的高效，我们采用 "Event Mask + GroupBy FFill" 的策略。
+    
+    # 策略:
+    # 新的 adjusted_major_high 应该是: min(original_major_high, latest_override_high)
+    # 但 "latest_override_high" 只有在它比 original 更低时才生效，且要持续生效直到 original 自己降下来。
+    
+    # 简化实现 (V1.0): 
+    # 只要出现了 override event，我们就在那个点打上新值。
+    # 然后我们需要把这个新值向后传播，但是不能覆盖掉 "本来就已经更低" 的 major_high。
+    
+    # 让我们用迭代法处理，虽然慢一点点，但最准确。
+    # 提取所有事件点和结构变化点
+    
+    # 优化: 仅在有 override 的行进行处理
+    override_high_indices = df.index[df['override_high_price'].notna()]
+    override_low_indices = df.index[df['override_low_price'].notna()]
+    
+    # 如果没有事件，直接返回
+    if len(override_high_indices) == 0 and len(override_low_indices) == 0:
+        return df
+        
+    # --- 处理 High ---
+    # 我们不仅要修改当前点，还要影响后续
+    # 这实际上是一个状态机：
+    # State = min(V2_Level, Last_Override_Level)
+    # 但是 V2_Level 也是动态变化的。
+    
+    # 简单做法: 
+    # adjusted = min(major_high, ffill(override_high)) 
+    # 但这有个问题：如果 major_high 后来主要下降了，ffill 的 override 可能会阻碍它？
+    # 不会，因为是 min()。
+    # 问题是：如果 major_high 后来上升了（Bull Trend 恢复），ffill 的 override 是否应该失效？
+    # 是的！当 prices 创新高时，旧的 override high 就失效了。
+    
+    # 鉴于复杂性，V1.0 采用局部修补：
+    # 仅修改 override 点及其后 N 天，或者直到 major_high 发生变化。
+    # 这里的可视化目的是 "让用户看到线掉下来了"。
+    
+    # 最稳健的做法：重新生成一条序列
+    # adjusted[t] = min(major_high[t], last_valid_override)
+    # last_valid_override 在 price > it 时失效
+    
+    curr_override_high = np.inf
+    curr_override_low = -np.inf
+    
+    # 转换为 numpy 数组加速
+    major_high_vals = df['major_high'].values
+    major_low_vals = df['major_low'].values
+    high_prices = df['high'].values
+    low_prices = df['low'].values
+    override_high_vals = df['override_high_price'].values
+    override_low_vals = df['override_low_price'].values
+    
+    adj_high_vals = np.full(len(df), np.nan)
+    adj_low_vals = np.full(len(df), np.nan)
+    
+    # --- State Machine: Broken-Wait-Update ---
+    # 原则: 
+    # 1. 如果 Active Level 被突破，它失效并消失 (NaN)，而不是跳回旧的 V2。
+    # 2. 只有当新的 V2 结构形成(数值变化) 或 新的 Override 信号出现时，Active Level 才会重新建立。
+    
+    curr_high = np.inf
+    last_v2_high = np.nan
+    
+    curr_low = -np.inf
+    last_v2_low = np.nan
+    
+    for i in range(len(df)):
+        # --- Handle High (Resistance) ---
+        v2_h = major_high_vals[i]
+        ov_h = override_high_vals[i]
+        
+        # 1. Check Break (Stop Run)
+        if high_prices[i] > curr_high:
+            curr_high = np.inf # Broken -> Disappear
+            
+        # 2. Check V2 Update (New Structure)
+        # 如果 V2 数值发生了变化 (且不是变回 NaN)，说明形成了新结构，重置 Active
+        # 注意的处理 NaN 的相等性比较
+        v2_changed = False
+        if np.isnan(v2_h) and np.isnan(last_v2_high):
+            v2_changed = False
+        elif np.isnan(v2_h) or np.isnan(last_v2_high):
+            v2_changed = True
+        else:
+            v2_changed = (v2_h != last_v2_high)
+            
+        if v2_changed:
+            if not np.isnan(v2_h):
+                # 新结构出现，重置/更新 Active (取较紧者)
+                curr_high = v2_h
+            last_v2_high = v2_h
+            
+        # 3. Check Override (Tighten)
+        if not np.isnan(ov_h):
+            # Override 总是让止损更紧 (更低)
+            # 如果当前是 inf (已消失)，Override 可以重新激活它
+            if curr_high == np.inf or ov_h < curr_high:
+                curr_high = ov_h
+                
+        # 4. Assign
+        if not np.isinf(curr_high):
+            adj_high_vals[i] = curr_high
+            
+            
+        # --- Handle Low (Support) ---
+        v2_l = major_low_vals[i]
+        ov_l = override_low_vals[i]
+        
+        # 1. Check Break
+        if low_prices[i] < curr_low:
+            curr_low = -np.inf # Broken -> Disappear
+            
+        # 2. Check V2 Update
+        v2_l_changed = False
+        if np.isnan(v2_l) and np.isnan(last_v2_low):
+            v2_l_changed = False
+        elif np.isnan(v2_l) or np.isnan(last_v2_low):
+            v2_l_changed = True
+        else:
+            v2_l_changed = (v2_l != last_v2_low)
+            
+        if v2_l_changed:
+            if not np.isnan(v2_l):
+                curr_low = v2_l
+            last_v2_low = v2_l
+            
+        # 3. Check Override (Tighten)
+        if not np.isnan(ov_l):
+            if curr_low == -np.inf or ov_l > curr_low:
+                curr_low = ov_l
+                
+        # 4. Assign
+        if not np.isinf(curr_low):
+            adj_low_vals[i] = curr_low
+            
+    df['adjusted_major_high'] = adj_high_vals
+    df['adjusted_major_low'] = adj_low_vals
     
     return df

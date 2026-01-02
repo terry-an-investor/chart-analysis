@@ -8,7 +8,8 @@ from .interactive import plot_interactive_kline, ChartBuilder, plot_bar_features
 from .bar_features import compute_bar_features, add_bar_features
 from .structure import (
     detect_swings, classify_swings, classify_swings_v2, compute_trend_state,
-    compute_market_structure, add_structure_features
+    compute_market_structure, add_structure_features,
+    detect_climax_reversal, detect_consecutive_reversal, merge_structure_with_events
 )
 
 __all__ = [
@@ -21,5 +22,6 @@ __all__ = [
     # Phase 2: Market Structure
     "detect_swings", "classify_swings", "classify_swings_v2", "compute_trend_state",
     "compute_market_structure", "add_structure_features",
+    "detect_climax_reversal", "detect_consecutive_reversal", "merge_structure_with_events",
 ]
 

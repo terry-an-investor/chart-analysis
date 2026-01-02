@@ -35,10 +35,14 @@
         - 识别 **V-Top/V-Bottom** (急转模式)：捕捉 "Bull Climax + Bear Reversal" 的反转形态。
     - **Consecutive Reversal**:
         - 识别 **渐进式反转**：当出现连续 3+ 根同向 K 线后，回溯标记该段行情的起点。
-    - **可视化**: 
-        - 生成 `*_structure.html`。
-        - 包含 Major High/Low 阶梯线、基础分型点 (HH/HL) 以及反转标记 (▼/▲)。
-        - 采用**诚实滞后**显示 (No Shift)，模拟真实的盘中决策体验。
+    - **可视化 (Dual-Line Visualization)**: 
+        - **实线 (Active Level)**: 代表融合后的**紧缩止损**。
+            - 极其敏感，对 Climax/Reversal 事件立即响应。
+            - **击穿即失效 (Gap)**: 当价格突破实线时，实线会断开(留白)，直到新结构形成。
+        - **虚线 (Major Level)**: 代表原始 V2 **宽止损** (Breakout Confirmed)。
+            - 提供宏观市场结构背景，作为长期多空分界线。
+            - 即使实线被击穿，只要虚线未破，大趋势可能仍未改变。
+        - **诚实滞后**: 线条不进行回溯显示，完全模拟盘中决策体验。
 
 6.  **📊 Bar Features K 线特征 (New)**
     - **多维特征提取**: 提取单根 K 线特征，辅助 Price Action (Al Brooks) 分析:

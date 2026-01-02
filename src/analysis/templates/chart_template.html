@@ -120,12 +120,12 @@
 
     <script>
         // 数据 (由 Python 注入)
-        const candlestickData = {{candlestick_json}};
-        const indicators = {{indicators_json}};
-        const strokesData = {{strokes_json}};
-        const markersData = {{markers_json}};
-        const pricePrecision = {{precision}};
-
+        const candlestickData = {{ candlestick_json }};
+        const indicators = {{ indicators_json }};
+        const strokesData = {{ strokes_json }};
+        const markersData = {{ markers_json }};
+        const pricePrecision = {{ precision }};
+        const genericLinesData = {{ lines_json }}; // 接收通用线段数据
 
         // 创建图表
         const container = document.getElementById('chart-container');
@@ -272,6 +272,7 @@
         });
         // --------------------------------------------------------
 
+
         // OHLC 蜡烛图系列
         const candlestickSeries = chart.addCandlestickSeries({
             upColor: '#26a69a',
@@ -288,22 +289,24 @@
             candlestickSeries.setMarkers(markersData);
         }
 
-        // 笔连线 (已禁用)
-        // if (strokesData.length > 0) {
-        //     const strokeSeries = chart.addLineSeries({
-        //         color: '#9c27b0',
-        //         lineWidth: 2,
-        //         crosshairMarkerVisible: false,
-        //         lastValueVisible: false,
-        //         priceLineVisible: false,
-        //     });
-        //     strokeSeries.setData(strokesData);
-        // }
+        // 添加通用线段 (如 Major High/Low 虚线)
+        if (genericLinesData && genericLinesData.length > 0) {
+            genericLinesData.forEach(line => {
+                const lineSeries = chart.addLineSeries({
+                    color: line.color,
+                    lineWidth: line.width || 1,
+                    lineStyle: line.style === 'Dashed' ? LightweightCharts.LineStyle.Dashed : LightweightCharts.LineStyle.Solid,
+                    title: line.title || '',
+                });
+                lineSeries.setData(line.data);
+            });
+        }
 
         // 技术指标线
         const legendContainer = document.getElementById('legend');
         indicators.forEach((indicator, index) => {
             const lineSeries = chart.addLineSeries({
+
                 color: indicator.color,
                 lineWidth: indicator.lineWidth,
                 crosshairMarkerVisible: true,

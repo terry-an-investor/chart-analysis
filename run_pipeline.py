@@ -228,21 +228,33 @@ def main(input_file: str):
     ticker_output_dir = OUTPUT_DIR / dir_name
     ticker_output_dir.mkdir(parents=True, exist_ok=True)
     
-    # Step 2: 生成市场结构图表 (V2 + Reversal Markers)
+    # Step 2: 生成市场结构图表 (V2.4: Fusion Logic)
     print(f"\n[Step 2/2] 生成市场结构交互式图表...")
-    from src.analysis.structure import detect_swings, classify_swings_v2, detect_consecutive_reversal
+    from src.analysis.structure import (
+        detect_swings, classify_swings_v2, 
+        detect_climax_reversal, detect_consecutive_reversal, merge_structure_with_events
+    )
     from src.analysis.indicators import compute_ema
     from src.analysis.interactive import ChartBuilder
     
     df = data.df.copy()
     df['datetime'] = pd.to_datetime(df['datetime'])
     
-    # 摆动点检测 + V2 分类 (突破确认逻辑)
+    # 1. 基础结构 (Slow Track)
     df_with_swings = detect_swings(df, window=5)
     result = classify_swings_v2(df_with_swings)
     
-    # 渐进式反转检测 (连续 N 根阴/阳线)
+    # 2. 事件检测 (Fast Track)
+    result = detect_climax_reversal(result, atr_multiplier=2.0)
     result = detect_consecutive_reversal(result, consecutive_count=3)
+    
+    # 3. 融合层 (Fusion Override)
+    # 将快速事件注入慢速结构，生成 adjusted_major_high/low
+    result = merge_structure_with_events(
+        df_structure=result,
+        df_events_climax=result,       # 包含 is_climax_top/bottom
+        df_events_consecutive=result   # 包含 consecutive_bear_start
+    )
     
     ema20 = compute_ema(df, period=20)
     
@@ -251,11 +263,16 @@ def main(input_file: str):
     chart = ChartBuilder(result)
     chart.add_candlestick()
     chart.add_indicator('EMA20', ema20, '#FFA500', line_width=1)
+    
+    # 使用 Fused Major Levels 作为主结构 (实线)
+    # 使用 V2 Structure 作为次要结构 (虚线 - 用于对比)
     chart.add_structure_levels(
-        major_high=result['major_high'],
-        major_low=result['major_low'],
+        major_high=result['adjusted_major_high'],
+        major_low=result['adjusted_major_low'],
         swing_types=result['swing_type'],
-        swing_window=5
+        swing_window=5,
+        secondary_item_high=result['major_high'],
+        secondary_item_low=result['major_low']
     )
     # [已禁用] 渐进式反转标记 (太过杂乱，暂不显示)
     # chart.add_reversal_markers(
