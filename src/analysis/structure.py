@@ -144,6 +144,14 @@ def detect_swings(
     df.loc[~df['swing_high_confirmed'], 'swing_high_price'] = np.nan
     df.loc[~df['swing_low_confirmed'], 'swing_low_price'] = np.nan
     
+    # -------------------------------------------------------------------------
+    # 4. 绘图辅助列 (Visual Helpers) - 仅供绘图，严禁用于策略信号！
+    # -------------------------------------------------------------------------
+    # 反向平移，把价格移回它发生的物理时刻
+    # 这样在图表上画 Swing 标记时，点会精准落在 K 线的实际高/低点上
+    df['plot_swing_high'] = df['swing_high_price'].shift(-window)
+    df['plot_swing_low'] = df['swing_low_price'].shift(-window)
+    
     return df
 
 
@@ -426,6 +434,174 @@ def classify_swings_v2(
     df['major_high'] = df['major_high'].ffill()
     df['major_low'] = df['major_low'].ffill()
     df['trend_bias'] = df['trend_bias'].ffill().fillna(0).astype(int)
+    
+    return df
+
+
+def classify_swings_v3(
+    df: pd.DataFrame,
+    window: int = DEFAULT_SWING_WINDOW,
+    tolerance_pct: float = PRICE_TOLERANCE_PCT
+) -> pd.DataFrame:
+    """
+    [V3] 混合驱动状态机: Swing Event + Bar-by-Bar Close Breakout
+    
+    核心改进 (相比 V2):
+    --------------------------------------
+    1. Close-based 突破: 使用 Close 而非 High/Low 判断突破，过滤影线假突破
+    2. Bar-by-Bar 检测: 每根 K 线都检查是否突破，不仅仅在 Swing Point 确认时
+    3. 状态消失: 突破后 Level 变为 NaN，直到新的 Swing 结构形成
+    
+    Al Brooks 原则:
+    - "Traders want to see a strong CLOSE above the resistance to confirm a breakout."
+    - 影线刺破但收盘未突破 = Bull Trap / Bear Trap，不应改变趋势判定
+    
+    输出列:
+    - swing_type: str (HH, LH, HL, LL, DT, DB)
+    - major_high: float (当前生效的结构性阻力位，Bear 趋势时有效)
+    - major_low: float (当前生效的结构性支撑位，Bull 趋势时有效)
+    - market_trend: int (当前趋势: 1=Bull, -1=Bear, 0=Neutral)
+    """
+    if 'swing_high_confirmed' not in df.columns:
+        df = detect_swings(df, window=window)
+    
+    df = df.copy()
+    
+    # 初始化输出列
+    df['swing_type'] = pd.Series([np.nan] * len(df), dtype=object)
+    df['major_high'] = np.nan
+    df['major_low'] = np.nan
+    df['market_trend'] = 0
+    
+    # 状态变量 - 用于 HH/HL/LH/LL 分类
+    last_h_price = -np.inf
+    last_l_price = np.inf
+    
+    # 最近确认的 Swing Points (用作候选结构位)
+    last_swing_high = np.nan
+    last_swing_low = np.nan
+    
+    # 当前生效的结构位 (Active Structure Levels)
+    # 初始化为前 window 根 K 线的极值
+    initial_high = df['high'].iloc[:window].max() if len(df) > window else df['high'].max()
+    initial_low = df['low'].iloc[:window].min() if len(df) > window else df['low'].min()
+    active_high = initial_high
+    active_low = initial_low
+    
+    trend = 0  # 0=Neutral, 1=Bull, -1=Bear
+    
+    # 提取数据为 numpy 数组加速
+    closes = df['close'].values
+    highs = df['high'].values
+    lows = df['low'].values
+    swing_high_confirmed = df['swing_high_confirmed'].values
+    swing_low_confirmed = df['swing_low_confirmed'].values
+    swing_high_prices = df['swing_high_price'].values
+    swing_low_prices = df['swing_low_price'].values
+    
+    # 输出数组
+    major_high_arr = np.full(len(df), np.nan)
+    major_low_arr = np.full(len(df), np.nan)
+    trend_arr = np.zeros(len(df), dtype=int)
+    swing_type_arr = np.empty(len(df), dtype=object)
+    swing_type_arr[:] = np.nan
+    
+    for i in range(len(df)):
+        # =====================================================================
+        # 1. Event 触发: 检查是否有 Swing 确认
+        # =====================================================================
+        if swing_high_confirmed[i]:
+            price = swing_high_prices[i]
+            
+            # 标记 Swing Type (几何属性)
+            if last_h_price > 0:
+                price_diff_pct = abs(price - last_h_price) / last_h_price
+                if price_diff_pct <= tolerance_pct:
+                    swing_type_arr[i] = 'DT'
+                elif price > last_h_price:
+                    swing_type_arr[i] = 'HH'
+                else:
+                    swing_type_arr[i] = 'LH'
+            else:
+                swing_type_arr[i] = 'HH'
+            
+            last_h_price = price
+            last_swing_high = price
+            
+            # 如果当前是 Bear 趋势，新的 Swing High 自动成为阻力 (Lower High)
+            if trend == -1:
+                active_high = price
+                
+        if swing_low_confirmed[i]:
+            price = swing_low_prices[i]
+            
+            # 标记 Swing Type
+            if last_l_price < np.inf:
+                price_diff_pct = abs(price - last_l_price) / last_l_price
+                if price_diff_pct <= tolerance_pct:
+                    swing_type_arr[i] = 'DB'
+                elif price < last_l_price:
+                    swing_type_arr[i] = 'LL'
+                else:
+                    swing_type_arr[i] = 'HL'
+            else:
+                swing_type_arr[i] = 'LL'
+            
+            last_l_price = price
+            last_swing_low = price
+            
+            # 如果当前是 Bull 趋势，新的 Swing Low 自动成为支撑 (Higher Low)
+            if trend == 1:
+                active_low = price
+        
+        # =====================================================================
+        # 2. Bar-by-Bar 突破检测 (使用 CLOSE!)
+        # =====================================================================
+        # Bull Breakout: Close 突破阻力
+        if not np.isnan(active_high) and closes[i] > active_high:
+            trend = 1
+            # 止损上移到最近的 Swing Low
+            if not np.isnan(last_swing_low):
+                active_low = last_swing_low
+            # 阻力失效 (被突破了)
+            active_high = np.nan
+            
+        # Bear Breakout: Close 跌破支撑
+        elif not np.isnan(active_low) and closes[i] < active_low:
+            trend = -1
+            # 阻力下移到最近的 Swing High
+            if not np.isnan(last_swing_high):
+                active_high = last_swing_high
+            # 支撑失效 (被跌破了)
+            active_low = np.nan
+        
+        # =====================================================================
+        # 3. 记录状态
+        # =====================================================================
+        # Bull 趋势时只显示支撑 (止损线在下方)
+        # Bear 趋势时只显示阻力 (止损线在上方)
+        if trend == 1:
+            major_low_arr[i] = active_low
+            # 阻力位保持 NaN (被突破后消失)
+        elif trend == -1:
+            major_high_arr[i] = active_high
+            # 支撑位保持 NaN
+        else:
+            # Neutral: 两者都显示
+            major_high_arr[i] = active_high
+            major_low_arr[i] = active_low
+            
+        trend_arr[i] = trend
+    
+    # 赋值回 DataFrame
+    df['swing_type'] = swing_type_arr
+    df['major_high'] = major_high_arr
+    df['major_low'] = major_low_arr
+    df['market_trend'] = trend_arr
+    
+    # 状态填充: 将稀疏的 major_high/low 前向填充
+    df['major_high'] = df['major_high'].ffill()
+    df['major_low'] = df['major_low'].ffill()
     
     return df
 
