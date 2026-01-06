@@ -4,11 +4,11 @@ src/io/data_config.py
 
 用法:
     from src.io.data_config import DATA_SOURCES, get_config
-    
+
     # 获取所有数据源配置
     for config in DATA_SOURCES:
         print(config.symbol, config.name)
-    
+
     # 获取指定数据源配置
     config = get_config("TL.CFE")
 """
@@ -21,7 +21,7 @@ from typing import Optional
 class DataConfig:
     """
     单个数据源的配置。
-    
+
     Attributes:
         symbol: Wind代码 (如 'TL.CFE', '000510.SH')
         name: 资产名称
@@ -29,12 +29,13 @@ class DataConfig:
         fields: 获取的字段列表，默认 OHLCV + pre_close
         description: 数据描述
     """
+
     symbol: str
     name: str
     trading_calendar: str = "SSE"
     fields: str = "open,high,low,close,volume,pre_close"  # 新增 pre_close
     description: str = ""
-    
+
     @property
     def filename(self) -> str:
         """生成保存文件名 (将 . 替换为 _ 避免路径问题)"""
@@ -54,7 +55,6 @@ DATA_SOURCES: list[DataConfig] = [
         description="CFFEX 30年期国债期货主力合约",
     ),
     # TB10Y.WI 已移除: Wind API 不支持 open 字段，请使用手动下载的数据
-    
     # 新增数据
     DataConfig(
         symbol="881001.WI",
@@ -88,6 +88,7 @@ DATA_SOURCES: list[DataConfig] = [
 # 便捷函数
 # ============================================================
 
+
 def get_all_symbols() -> list[str]:
     """获取所有配置的代码列表"""
     return [cfg.symbol for cfg in DATA_SOURCES]
@@ -96,10 +97,10 @@ def get_all_symbols() -> list[str]:
 def get_config(symbol: str) -> Optional[DataConfig]:
     """
     根据代码获取配置。
-    
+
     Args:
         symbol: Wind 代码
-        
+
     Returns:
         DataConfig 或 None (如果未找到)
     """

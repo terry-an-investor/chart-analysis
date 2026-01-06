@@ -6,13 +6,13 @@ fetch_data.py
 用法:
     # 获取所有配置的数据源
     uv run fetch_data.py
-    
+
     # 获取指定代码
     uv run fetch_data.py TL.CFE
-    
+
     # 获取多个代码
     uv run fetch_data.py TL.CFE 000510.SH
-    
+
     # 自定义日期范围
     uv run fetch_data.py --start 2023-01-01 --end 2024-12-30
 
@@ -30,8 +30,8 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.io.data_config import DATA_SOURCES, get_config, list_configs
 from src.io.adapters.wind_api_adapter import WindAPIAdapter
+from src.io.data_config import DATA_SOURCES, get_config, list_configs
 
 
 def parse_args():
@@ -45,56 +45,33 @@ def parse_args():
     uv run fetch_data.py TL.CFE               # 获取单个代码
     uv run fetch_data.py --list               # 列出所有可用代码
     uv run fetch_data.py --start 2023-01-01   # 自定义起始日期
-        """
+        """,
     )
-    
-    parser.add_argument(
-        "symbols",
-        nargs="*",
-        help="要获取的 Wind 代码 (不指定则获取全部)"
-    )
-    
-    parser.add_argument(
-        "--start",
-        type=str,
-        default=None,
-        help="起始日期 (YYYY-MM-DD)，默认5年前"
-    )
-    
-    parser.add_argument(
-        "--end",
-        type=str,
-        default=None,
-        help="截止日期 (YYYY-MM-DD)，默认今天"
-    )
-    
-    parser.add_argument(
-        "--output",
-        type=str,
-        default="data/raw",
-        help="输出目录，默认 data/raw"
-    )
-    
-    parser.add_argument(
-        "--list",
-        action="store_true",
-        help="列出所有可用的数据代码"
-    )
-    
+
+    parser.add_argument("symbols", nargs="*", help="要获取的 Wind 代码 (不指定则获取全部)")
+
+    parser.add_argument("--start", type=str, default=None, help="起始日期 (YYYY-MM-DD)，默认5年前")
+
+    parser.add_argument("--end", type=str, default=None, help="截止日期 (YYYY-MM-DD)，默认今天")
+
+    parser.add_argument("--output", type=str, default="data/raw", help="输出目录，默认 data/raw")
+
+    parser.add_argument("--list", action="store_true", help="列出所有可用的数据代码")
+
     return parser.parse_args()
 
 
 def main():
     """主函数"""
     args = parse_args()
-    
+
     # 列出配置
     if args.list:
         list_configs()
         return 0
-    
+
     from src.io.data_config import DataConfig
-    
+
     # 确定要获取的代码
     if args.symbols:
         configs = []
@@ -107,24 +84,24 @@ def main():
                     symbol=symbol,
                     name=symbol,  # 初始名称设为代码，后面连接后尝试解析
                     trading_calendar="SSE",  # 默认 A 股日历
-                    description="自动添加的代码"
+                    description="自动添加的代码",
                 )
             configs.append(cfg)
     else:
         configs = DATA_SOURCES
-    
+
     # 默认日期范围: end_date 为昨天 (当前交易日未结束), start_date 为五年前
     # 注意: 如果证券上市时间不足5年，Wind API 会自动从上市日开始返回数据
     yesterday = datetime.now() - timedelta(days=1)
     end_date = args.end or yesterday.strftime("%Y-%m-%d")
-    
+
     if args.start:
         start_date = args.start
     else:
         # 默认从 end_date 往前推 5 年 (约 1826 天)
         end_dt = datetime.strptime(end_date, "%Y-%m-%d")
         start_date = (end_dt - timedelta(days=365 * 5)).strftime("%Y-%m-%d")
-    
+
     print("=" * 60)
     print("Wind API 数据获取")
     print("=" * 60)
@@ -132,19 +109,19 @@ def main():
     print(f"输出目录: {args.output}")
     print(f"数据源数量: {len(configs)}")
     print("=" * 60)
-    
+
     # 创建适配器
     adapter = WindAPIAdapter()
-    
+
     success_count = 0
     failed = []
-    
+
     try:
         for cfg in configs:
             # 如果名称和代码一致（说明是自动添加的代码），尝试解析真实名称
             if cfg.name == cfg.symbol:
                 cfg.name = adapter.get_security_name(cfg.symbol)
-            
+
             print(f"\n📊 {cfg.symbol} ({cfg.name})")
             try:
                 adapter.fetch_and_save(
@@ -157,52 +134,52 @@ def main():
                     name=cfg.name,
                 )
                 success_count += 1
-                
+
                 # --------------------------------------------------------
                 # 将名称缓存到本地 JSON，供 StandardAdapter 使用，避免重复调用 API
                 # --------------------------------------------------------
                 import json
-                
+
                 cache_file = Path("data") / "security_names.json"
                 cache_data = {}
-                
+
                 # 读取现有缓存
                 if cache_file.exists():
                     try:
-                        with open(cache_file, 'r', encoding='utf-8') as f:
+                        with open(cache_file, "r", encoding="utf-8") as f:
                             cache_data = json.load(f)
                     except Exception:
                         pass
-                
+
                 # 更新缓存 (仅当名称不是默认的代码本身时)
                 if cfg.name and cfg.name != cfg.symbol:
                     cache_data[cfg.symbol] = cfg.name
                     try:
-                        with open(cache_file, 'w', encoding='utf-8') as f:
+                        with open(cache_file, "w", encoding="utf-8") as f:
                             json.dump(cache_data, f, ensure_ascii=False, indent=2)
                     except Exception:
                         print("  ⚠️ 警告: 无法保存名称缓存")
                 # --------------------------------------------------------
-                
+
             except Exception as e:
                 print(f"  ❌ 失败: {e}")
                 failed.append((cfg.symbol, str(e)))
-    
+
     finally:
         # 断开连接
         adapter.disconnect()
-    
+
     # 汇总
     print("\n" + "=" * 60)
     print("获取完成")
     print("=" * 60)
     print(f"成功: {success_count}/{len(configs)}")
-    
+
     if failed:
         print("\n失败列表:")
         for symbol, error in failed:
             print(f"  - {symbol}: {error}")
-    
+
     return 0 if not failed else 1
 
 

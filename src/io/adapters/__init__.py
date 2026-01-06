@@ -4,8 +4,8 @@ adapters 模块
 """
 
 from .base import DataAdapter
-from .wind_cfe_adapter import WindCFEAdapter
-from .wind_api_adapter import WindAPIAdapter
 from .standard_adapter import StandardAdapter
+from .wind_api_adapter import WindAPIAdapter
+from .wind_cfe_adapter import WindCFEAdapter
 
 __all__ = ["DataAdapter", "WindCFEAdapter", "WindAPIAdapter", "StandardAdapter"]

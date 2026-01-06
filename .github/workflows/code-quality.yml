@@ -1,0 +1,34 @@
+name: Code Quality
+
+on:
+  push:
+    branches: [ main, develop, chore-modernize-config-ci-logging-typing-tests ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  type-check:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
+      with:
+        version: "latest"
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.13"
+    
+    - name: Install dependencies
+      run: |
+        uv sync
+    
+    - name: Run mypy type checking
+      run: |
+        uv run mypy src/ --strict --show-error-codes
+      continue-on-error: true
