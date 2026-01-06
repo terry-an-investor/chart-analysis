@@ -46,55 +46,37 @@ graph TB
     end
     
     subgraph "📊 src/analysis/"
-        PROCESS["process_ohlc.py<br/>add_kline_status()"]
-        MERGE["merging.py<br/>apply_kline_merging()"]
-        FRACTAL["fractals.py<br/>process_strokes()<br/>MIN_DIST=4"]
         BAR_FEAT["bar_features.py<br/>compute_bar_features()"]
-        STRUCTURE["structure.py<br/>detect_swings()<br/>Market Structure"]
-        KLINE["kline_logic.py<br/>classify_k_line_combination()"]
+        BAR_UTILS["_bar_utils.py<br/>Feature Helpers"]
+        SWINGS["swings.py<br/>Swing Detection"]
+        REVERSALS["reversals.py<br/>Reversal Patterns"]
+        STRUCTURE["structure.py<br/>Market Structure Integration"]
         INTERACTIVE["interactive.py<br/>交互式可视化"]
+        INDICATORS["indicators.py<br/>技术指标"]
         
-        LOADER --> PROCESS
-        KLINE -.-> PROCESS
-        PROCESS --> MERGE
-        MERGE --> FRACTAL
         LOADER --> BAR_FEAT
-        FRACTAL --> INTERACTIVE
-        BAR_FEAT --> INTERACTIVE
+        BAR_FEAT --> BAR_UTILS
+        BAR_UTILS --> SWINGS
+        SWINGS --> REVERSALS
+        REVERSALS --> STRUCTURE
         STRUCTURE --> INTERACTIVE
-    end
-    
-    subgraph "📂 data/processed/"
-        CSV1[("*_processed.csv")]
-        CSV2[("*_merged.csv")]
-        CSV3[("*_strokes.csv")]
-        
-        PROCESS --> CSV1
-        MERGE --> CSV2
-        FRACTAL --> CSV3
+        INDICATORS --> INTERACTIVE
+        BAR_FEAT --> INTERACTIVE
     end
     
     subgraph "📂 output/"
-        PNG1[("*_merged_kline.png")]
-        PNG2[("*_strokes.png")]
-        HTML1[("*_interactive.html")]
-        HTML2[("*_bar_features.html")]
         HTML3[("*_structure.html")]
+        HTML2[("*_bar_features.html")]
         
-        MERGE --> PNG1
-        FRACTAL --> PNG2
-        INTERACTIVE --> HTML1
-        INTERACTIVE --> HTML2
-        INTERACTIVE --> HTML3
+        STRUCTURE --> HTML3
+        BAR_FEAT --> HTML2
     end
     
     subgraph "🧪 tests/"
-        TEST["test_min_dist.py<br/>MIN_DIST参数测试"]
-        PLOT["plot_min_dist_compare.py<br/>MIN_DIST对比可视化"]
+        TEST_STRUC["test_structure.py"]
         TEST_BAR["test_bar_features.py"]
         
-        FRACTAL --> TEST
-        FRACTAL --> PLOT
+        STRUCTURE --> TEST_STRUC
         BAR_FEAT --> TEST_BAR
     end
     
@@ -105,16 +87,10 @@ graph TB
     style RAW_USER fill:#e1f5fe
     style FETCH fill:#fff3e0
     style PIPELINE fill:#fff3e0
-    style CSV1 fill:#e8f5e9
-    style CSV2 fill:#e8f5e9
-    style CSV3 fill:#e8f5e9
-    style PNG1 fill:#fce4ec
-    style PNG2 fill:#fce4ec
-    style HTML1 fill:#f3e5f5
     style HTML2 fill:#f3e5f5
     style HTML3 fill:#f3e5f5
-    style TEST fill:#fff9c4
-    style PLOT fill:#fff9c4
+    style TEST_STRUC fill:#fff9c4
+    style TEST_BAR fill:#fff9c4
     style BAR_FEAT fill:#e1bee7
     style HTML2 fill:#e1bee7
 ```
@@ -150,40 +126,20 @@ sequenceDiagram
     loop For each selected file
         Note over Pipeline: Step 1: 加载数据
         Pipeline->>IO: load_ohlc(file_path)
-        alt is standard/api file
-            IO->>IO: StandardAdapter.load()
-            IO->>IO: data_config.get_config() [Name Lookup]
-            IO->>IO: security_names.json [Cache Lookup]
-            IO->>IO: WindAPIAdapter.get_security_name() [Optional Fallback]
-        else is legacy file
-            IO->>IO: WindCFEAdapter.load()
-        end
         IO-->>Pipeline: OHLCData 对象 (Symbol & Name)
         
-        Note over Pipeline: Step 2: K线状态分类
-        Pipeline->>Analysis: process_and_save()
-        Analysis-->>Output: (Saved to data/processed/code_name/)
+        Note over Pipeline: Step 2: 市场结构分析
+        Pipeline->>Analysis: detect_swings()
+        Pipeline->>Analysis: classify_swings_v2()
+        Pipeline->>Analysis: detect_climax_reversal()
+        Pipeline->>Analysis: detect_consecutive_reversal()
+        Pipeline->>Analysis: merge_structure_with_events()
         
-        Note over Pipeline: Step 3: K线合并
-        Pipeline->>Analysis: apply_kline_merging()
-        Analysis-->>Output: (Saved to output/code_name/)
-        
-        Note over Pipeline: Step 4: 分型与笔识别
-        Pipeline->>Analysis: process_strokes()
-        Analysis->>Analysis: 记录候选分型 (Candidate History)
-        Analysis->>Analysis: 过滤无效笔 + 验证极值
-        
-        Note over Pipeline: Step 5: 可视化
+        Note over Pipeline: Step 3: 可视化渲染
         Pipeline->>Analysis: ChartBuilder.build()
-        Analysis->>Analysis: 计算 H/L 计数 (Signal Filter)
-        Analysis-->>Output: *_interactive.html
-        
-        Note over Pipeline: Step 6: Bar Features
-        Pipeline->>Analysis: plot_bar_features_chart()
-        Analysis->>Analysis: compute_bar_features()
-        Analysis-->>Output: *_bar_features.html
+        Analysis-->>Output: *_structure.html
     end
-    
+
     Pipeline-->>User: ✅ 所有文件处理完成
 ```
 
@@ -218,21 +174,23 @@ graph LR
     end
     
     subgraph "src/analysis/"
-        KLINE[kline_logic.py]
-        PROCESS[process_ohlc.py]
-        MERGE[merging.py]
-        FRACTAL[fractals.py]
-        INTERACTIVE[interactive.py]
         INDICATORS[indicators.py]
         BAR_FEAT[bar_features.py]
+        BAR_UTILS[_bar_utils.py]
+        SWINGS[swings.py]
+        REVERSALS[reversals.py]
         STRUCTURE[structure.py]
+        STRUC_UTILS[_structure_utils.py]
+        INTERACTIVE[interactive.py]
         
-        PROCESS --> KLINE
-        PROCESS --> SCHEMA
+        BAR_FEAT --> BAR_UTILS
+        BAR_FEAT --> INDICATORS
+        SWINGS --> STRUC_UTILS
+        REVERSALS --> STRUC_UTILS
+        STRUCTURE --> SWINGS
+        STRUCTURE --> REVERSALS
         INTERACTIVE --> INDICATORS
-        INTERACTIVE --> BAR_FEAT
         INTERACTIVE --> STRUCTURE
-        INTERACTIVE --> SCHEMA
     end
     
     subgraph "Scripts"
@@ -256,12 +214,12 @@ graph LR
 |------|------|-------------|------|------|
 | **获取** | Wind Terminal | `WindAPIAdapter` | `*.xlsx` (Standard) | 自动解析名称并缓存至 `security_names.json` |
 | **加载** | xlsx/csv | `StandardAdapter` | `OHLCData` | 优先读取缓存名称，**自动填充缺失的 open 列** |
-| **加载(旧)**| xlsx/csv | `WindCFEAdapter` | `OHLCData` | 兼容旧版 Wind 导出格式 |
-| **状态标记** | `OHLCData` | `process_ohlc` | `*_processed.csv` | 保存至 `processed/code_name/` 目录下 |
-| **合并** | processed.csv | `merging` | `*_merged.csv` | 绘制图表保存至 `output/code_name/` 目录下 |
-| **分型** | merged.csv | `fractals` | `*_strokes.csv` | 识别顶底分型，应用 MIN_DIST=4 过滤 |
-| **Bar特征** | `OHLCData` | `bar_features` | `*_bar_features.html` | 生成 PA 特征图表 (含 Urgency, Buying/Selling Pressure) |
-| **市场结构** | `OHLCData` | `structure` | `*_structure.html` | 生成 Major Levels (V2) & Reversal (Climax/Consecutive) 图表 |
+| **特征提取** | `OHLCData` | `bar_features` | 特征 Series | 提取 PA 特征 (含 Urgency, Buying/Selling Pressure) |
+| **Swing 检测** | `OHLCData` | `swings` | Swing Points | 识别 Major Swing High/Low (V2/V3) |
+| **反转识别** | Swing Data | `reversals` | Reversal Events | 识别 Climax 和 Consecutive 反转模式 |
+| **结构集成** | 多源数据 | `structure` | Market Structure | 集成 Swing、Reversal 和 Trend 状态 |
+| **可视化** | Structure Data | `interactive` | `*_structure.html` | 生成交互式市场结构图表 |
+
 
 ## 已知限制
 
