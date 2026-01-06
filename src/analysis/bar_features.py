@@ -8,13 +8,13 @@ import numpy as np
 import pandas as pd
 
 from ._bar_utils import (
-    safe_divide_array,
-    calculate_tails,
     calculate_blend_candle,
     calculate_consecutive_streak,
+    calculate_ema_features,
     calculate_engulfing,
     calculate_failed_breakouts,
-    calculate_ema_features,
+    calculate_tails,
+    safe_divide_array,
 )
 
 DOJI_BODY_THRESHOLD = 0.25
@@ -76,41 +76,34 @@ def compute_bar_features(
     prev_low = df["low"].shift(1)
     prev_close = df["close"].shift(1)
     prev_range = prev_high - prev_low
-    
+
     safe_prev_close = np.where(prev_close == 0, np.nan, prev_close)
     safe_prev_range = np.where(prev_range == 0, np.nan, prev_range)
-    
+
     gap_ratio = open_price / prev_close
     safe_gap_ratio = np.where((open_price > 0) & (prev_close > 0), gap_ratio, np.nan)
     gap = np.log(safe_gap_ratio)
-    
+
     day_return_ratio = close / prev_close
     safe_return_ratio = np.where((close > 0) & (prev_close > 0), day_return_ratio, np.nan)
     day_return = np.log(safe_return_ratio)
-    
+
     true_range = np.maximum(
-        total_range,
-        np.maximum(
-            (high - prev_close).abs(),
-            (low - prev_close).abs()
-        )
+        total_range, np.maximum((high - prev_close).abs(), (low - prev_close).abs())
     )
-    
+
     rel_true_range = true_range / safe_prev_close
-    
+
     safe_tr_val = np.where(true_range == 0, np.nan, true_range)
     movement_efficiency = (close - prev_close).abs() / safe_tr_val
-    
+
     open_in_body = np.abs(gap) < 0.01
-    
+
     is_inside = (high <= prev_high) & (low >= prev_low)
     is_outside = ((high >= prev_high) & (low < prev_low)) | ((high > prev_high) & (low <= prev_low))
-    
-    gap_type = np.where(
-        open_price > prev_high, 1,
-        np.where(open_price < prev_low, -1, 0)
-    )
-    
+
+    gap_type = np.where(open_price > prev_high, 1, np.where(open_price < prev_low, -1, 0))
+
     overlap_high = np.minimum(high, prev_high)
     overlap_low = np.maximum(low, prev_low)
     overlap_length = np.maximum(0, overlap_high - overlap_low)
@@ -127,25 +120,16 @@ def compute_bar_features(
     is_trading_range_bar = ~is_trend_bar
 
     is_doji = body_pct < doji_threshold
-    
+
     is_pinbar = (
-        ((upper_tail_pct > PINBAR_TAIL_THRESHOLD) | (lower_tail_pct > PINBAR_TAIL_THRESHOLD))
-        & (body_pct < (1 - PINBAR_TAIL_THRESHOLD))
-    )
-    
+        (upper_tail_pct > PINBAR_TAIL_THRESHOLD) | (lower_tail_pct > PINBAR_TAIL_THRESHOLD)
+    ) & (body_pct < (1 - PINBAR_TAIL_THRESHOLD))
+
     close_on_extreme = np.abs(clv) > CLOSE_ON_EXTREME_THRESHOLD
 
-    is_strong_bull_reversal = (
-        (lower_tail_pct > 0.33) & 
-        (clv > 0.6) & 
-        (bar_color == 1)
-    )
-    
-    is_strong_bear_reversal = (
-        (upper_tail_pct > 0.33) & 
-        (clv < -0.6) & 
-        (bar_color == -1)
-    )
+    is_strong_bull_reversal = (lower_tail_pct > 0.33) & (clv > 0.6) & (bar_color == 1)
+
+    is_strong_bear_reversal = (upper_tail_pct > 0.33) & (clv < -0.6) & (bar_color == -1)
 
     trend_streak = calculate_consecutive_streak(is_trend_bar, bar_color, df)
 
@@ -163,21 +147,26 @@ def compute_bar_features(
     )
     blend_range = blend_high - blend_low
     safe_blend_range = np.where(blend_range == 0, np.nan, blend_range)
-    
+
     blend_clv = (2 * blend_close - blend_high - blend_low) / safe_blend_range
     blend_body_size = (blend_close - blend_open).abs()
     blend_body_pct = blend_body_size / safe_blend_range
 
-    failed_breakout_high, failed_breakout_low, strict_failed_breakout_high, strict_failed_breakout_low = \
-        calculate_failed_breakouts(high, low, close, prev_high, prev_low, bar_color)
+    (
+        failed_breakout_high,
+        failed_breakout_low,
+        strict_failed_breakout_high,
+        strict_failed_breakout_low,
+    ) = calculate_failed_breakouts(high, low, close, prev_high, prev_low, bar_color)
 
     if "ema" in df.columns:
         ema = df["ema"]
     else:
         ema = df["close"].ewm(span=ema_period, adjust=False).mean()
-    
-    dist_to_ema, bar_pos_ema, ema_touch, gap_below_ema, gap_above_ema = \
-        calculate_ema_features(close, high, low, ema)
+
+    dist_to_ema, bar_pos_ema, ema_touch, gap_below_ema, gap_above_ema = calculate_ema_features(
+        close, high, low, ema
+    )
 
     result_dict = {
         "total_range": total_range,
@@ -233,7 +222,7 @@ def compute_bar_features(
         "gap_below_ema": gap_below_ema,
         "gap_above_ema": gap_above_ema,
     }
-    
+
     result = pd.DataFrame(result_dict, index=df.index)
     return result
 
@@ -242,26 +231,26 @@ def add_bar_features(
     df: pd.DataFrame,
     doji_threshold: float = DOJI_BODY_THRESHOLD,
     ema_period: int = 20,
-    prefix: str = ''
+    prefix: str = "",
 ) -> pd.DataFrame:
     """
     Add bar features to existing DataFrame.
-    
+
     Convenience wrapper that adds feature columns with optional prefix.
-    
+
     Args:
         df: DataFrame with OHLC data
         doji_threshold: Body percentage threshold for doji detection
         ema_period: EMA period
         prefix: Column name prefix
-        
+
     Returns:
         Original DataFrame with added feature columns
     """
     features = compute_bar_features(df, doji_threshold, ema_period)
-    
+
     df = df.copy()
     for col in features.columns:
-        df[f'{prefix}{col}'] = features[col].values
-    
+        df[f"{prefix}{col}"] = features[col].values
+
     return df

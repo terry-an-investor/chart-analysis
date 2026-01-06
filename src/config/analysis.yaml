@@ -1,0 +1,28 @@
+# Analysis Configuration
+
+analysis:
+  swing_window: 5
+  price_tolerance_pct: 0.001
+  min_dist: 4
+  atr_multiplier: 2.0
+  consecutive_count: 3
+  ema_period: 20
+
+ui:
+  chart_width: 1200
+  chart_height: 600
+  bull_color: "#26a69a"
+  bear_color: "#ef5350"
+  ema_color: "#FFA500"
+  ema_line_width: 1
+  level_line_width: 1
+  export_bar_features: false
+
+# Path settings
+data_raw_dir: "data/raw"
+output_dir: "output"
+log_dir: "logs"
+
+# Logging
+log_level: "INFO"
+log_to_file: false
