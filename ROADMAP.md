@@ -35,22 +35,21 @@ This document outlines the strategic progression from basic feature extraction t
 ## Phase 2: The Map (Market Structure) [Current]
 **Goal**: Identify the "Terrain" where the battle is fighting. "Where are we?"
 *   **Module**: `src/analysis/structure.py` (New)
-*   **Status**: 90% Complete (Core structure logic implemented).
+*   **Status**: 95% Complete (Refactoring complete, core logic verified).
 *   **Key Concepts**:
     1.  **Swing Points (V2)**: 
         *   **Status**: [Done]
-        *   **Implementation**: `classify_swings_v2()` with Breakout Confirmation logic.
+        *   **Implementation**: `swings.py` (374 lines) with Breakout Confirmation logic.
     2.  **Reversal Detection**:
         *   **Status**: [Done]
-        *   **Climax Reversal**: V-Top/Bottom detection (Body/ATR > 2.0).
-        *   **Consecutive Reversal**: Gradual reversal (N=3 consecutive bars).
-    3.  **"Always In" State**:
+        *   **Climax Reversal**: `reversals.py` (289 lines) V-Top/Bottom detection.
+        *   **Consecutive Reversal**: `reversals.py` (289 lines) gradual reversal.
+    3.  **Integration Layer**:
         *   **Status**: [Done]
-        *   **Implementation**: `compute_trend_state()` based on Swing High/Low sequence.
-    4.  **Market Cycle Classification**:
-        *   **Status**: [In Progress]
-        *   **Trend**: Broad Channel vs. Tight Channel (Spike).
-        *   **Trading Range**: Balanced areas, Barbwire.
+        *   **Implementation**: `structure.py` (175 lines) orchestrates swings and reversals.
+    4.  **Always In / Trend State**:
+        *   **Status**: [Done]
+        *   **Implementation**: Computed in `structure.py`.
 
 ## Phase 3: The Setup (Pattern Recognition)
 **Goal**: Identify specific tactical opportunities within the structure. "Is there an entry?"
@@ -80,11 +79,40 @@ This document outlines the strategic progression from basic feature extraction t
 
 ```mermaid
 graph TD
-    A[Phase 1: Bar Features (L1-L4)] --> B[Phase 1: EMA Features];
-    B --> C[Phase 2: Swing Points];
-    C --> D[Phase 2: Market Cycle / Always In];
-    D --> E[Phase 3: H1/H2 Counting];
-    D --> F[Phase 3: Wedge/Channel Lines];
-    E --> G[Phase 4: Signal Generation];
-    F --> G;
+    A["bar_features.py<br/>(L1-L3 Features)"] --> B["_bar_utils.py<br/>(Feature Helpers)"]
+    B --> C["swings.py<br/>(Swing Detection)"]
+    C --> D["reversals.py<br/>(Climax/Consecutive)"]
+    D --> E["structure.py<br/>(Integration Layer)"]
+    E --> F["Phase 3: Patterns<br/>(patterns.py)"]
+    E --> G["Phase 4: Strategy<br/>(signal_engine.py)"]
 ```
+
+## 模块组织 (As of v0.2.0)
+
+### Analysis Layer (src/analysis/)
+
+| 模块 | 职责 | 行数 | 依赖 |
+|------|------|------|------|
+| bar_features.py | 单根K线特征提取 | 267 | _bar_utils, indicators |
+| _bar_utils.py | 特征计算辅助函数 | 80 | pandas, numpy |
+| swings.py | Swing High/Low检测 | 374 | pandas, _structure_utils |
+| reversals.py | 反转模式识别 | 289 | pandas, _structure_utils |
+| structure.py | 市场结构集成层 | 175 | swings, reversals |
+| _structure_utils.py | 常量和工具函数 | 72 | numpy |
+
+### I/O Layer (src/io/)
+
+| 模块 | 职责 | 行数 |
+|------|------|------|
+| loader.py | 统一加载接口 | - |
+| config_loader.py | 配置读取 | 60 |
+| file_discovery.py | 文件扫描和选择 | 158 |
+| adapters/ | 多源数据适配 | - |
+
+### Entry Points (根目录)
+
+| 脚本 | 职责 | 行数 |
+|------|------|------|
+| run_pipeline.py | 主分析流水线 | 129 |
+| fetch_data.py | 数据获取脚本 | - |
+
