@@ -1,221 +1,50 @@
 """
-run_pipeline.py
-驱动 K 线分析流水线的入口脚本。
+Pipeline entry point for market structure analysis.
 
-流程:
-1. 加载数据    - 使用 data_loader 自动适配数据源
-2. 生成交互式图表 - 原始 OHLC 蜡烛图 + EMA20
-3. 生成 Bar Features 图表 - 单 K 线特征可视化
-
-用法:
-    uv run run_pipeline.py              # 交互式选择数据文件
-    uv run run_pipeline.py data/raw/TL.CFE.xlsx  # 直接指定文件
-    
-输出文件:
-    - output/{ticker}/*_interactive.html  (交互式 OHLC 图表)
-    - output/{ticker}/*_bar_features.html (K线特征图表)
+Usage:
+    uv run run_pipeline.py                    # Interactive file selection
+    uv run run_pipeline.py data/raw/file.xlsx # Direct file specification
 """
 
 import sys
 import re
-import json
 from pathlib import Path
 
 import pandas as pd
 
-# 确保 src 模块可导入
-sys.path.insert(0, str(Path(__file__).parent))
+from src.io import load_ohlc
+from src.io.file_discovery import select_files_interactive
+from src.analysis.structure import (
+    detect_swings, 
+    classify_swings_v2,
+    detect_climax_reversal,
+    detect_consecutive_reversal,
+    merge_structure_with_events,
+)
+from src.analysis.indicators import compute_ema
+from src.analysis.interactive import ChartBuilder
 
-# 目录配置
 DATA_RAW_DIR = Path("data/raw")
 OUTPUT_DIR = Path("output")
-
-# 支持的数据文件扩展名
-SUPPORTED_EXTENSIONS = {'.xlsx', '.xls', '.csv'}
+DEFAULT_FILE = "data/raw/TB10Y.WI.xlsx"
 
 
-def find_data_files(directory: Path = DATA_RAW_DIR) -> list[Path]:
-    """扫描目录下所有支持的数据文件"""
-    if not directory.exists():
-        return []
-    
-    files = []
-    for ext in SUPPORTED_EXTENSIONS:
-        for f in directory.glob(f'*{ext}'):
-            files.append(f)
-    return sorted(files, key=lambda x: x.name.lower())
-
-
-def _get_api_filenames() -> dict[str, str]:
-    """
-    轻量级读取 API 配置文件名（避免导入 pandas）。
-    
-    Returns:
-        dict: {filename: name} 映射，如 {"TL_CFE.xlsx": "30年期国债期货"}
-    """
-    import ast
-    config_path = Path(__file__).parent / "src" / "io" / "data_config.py"
-    
-    try:
-        with open(config_path, 'r', encoding='utf-8') as f:
-            source = f.read()
-        tree = ast.parse(source)
-        
-        result = {}
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Assign):
-                for target in node.targets:
-                    if isinstance(target, ast.Name) and target.id == 'DATA_SOURCES':
-                        if isinstance(node.value, ast.List):
-                            for elt in node.value.elts:
-                                if isinstance(elt, ast.Call):
-                                    symbol = name = None
-                                    for kw in elt.keywords:
-                                        if kw.arg == 'symbol' and isinstance(kw.value, ast.Constant):
-                                            symbol = kw.value.value
-                                        if kw.arg == 'name' and isinstance(kw.value, ast.Constant):
-                                            name = kw.value.value
-                                    if symbol:
-                                        filename = symbol.replace('.', '_') + '.xlsx'
-                                        result[filename] = name or symbol
-        return result
-    except Exception:
-        return {}
-
-
-def select_file_interactive() -> list[str]:
-    """交互式选择数据文件 (支持多选)"""
-    api_config = _get_api_filenames()
-    files = find_data_files()
-    
-    if not files:
-        print(f"❌ 目录 '{DATA_RAW_DIR}' 下没有找到可处理的数据文件")
-        print(f"   支持的格式: {', '.join(SUPPORTED_EXTENSIONS)}")
-        print(f"   请将数据文件放到 {DATA_RAW_DIR}/ 目录下")
-        sys.exit(1)
-    
-    if len(files) == 1:
-        print(f"找到数据文件: {files[0].name}")
-        return [str(files[0])]
-    
-    # 区分 API 获取的文件和用户提供的文件
-    api_filenames = set(api_config.keys())
-    api_files = []
-    user_files = []
-    
-    wind_file_pattern = re.compile(r'^[a-zA-Z0-9.]+_[a-zA-Z]+\.xlsx$', re.IGNORECASE)
-    
-    for f in files:
-        if f.name in api_filenames or wind_file_pattern.match(f.name):
-            api_files.append(f)
-        else:
-            user_files.append(f)
-            
-    all_files = api_files + user_files
-    
-    print("\n📂 请选择要处理的数据文件:\n")
-    
-    current_idx = 1
-    
-    if api_files:
-        print("  --- 🌏 来自 Wind API ---")
-        
-        cache_data = {}
-        cache_file = Path("data") / "security_names.json"
-        if cache_file.exists():
-            try:
-                with open(cache_file, 'r', encoding='utf-8') as f:
-                    cache_data = json.load(f)
-            except Exception:
-                pass
-        
-        for f in api_files:
-            size_kb = f.stat().st_size / 1024
-            comment = ""
-            found_config = False
-            if f.name in api_config:
-                comment = f"[{api_config[f.name]}]"
-                found_config = True
-            
-            if not found_config and wind_file_pattern.match(f.name):
-                symbol = f.stem.replace('_', '.')
-                if symbol in cache_data:
-                     comment = f"[{cache_data[symbol]}]"
-            
-            print(f"  [{current_idx}] {f.name:<20} {comment} ({size_kb:.1f} KB)")
-            current_idx += 1
-        print()
-            
-    if user_files:
-        print("  --- 👤 用户手工提供 ---")
-        for f in user_files:
-            size_kb = f.stat().st_size / 1024
-            print(f"  [{current_idx}] {f.name:<20} ({size_kb:.1f} KB)")
-            current_idx += 1
-    
-    print(f"\n  [0] 退出\n")
-    print(f"  提示: 输入多个序号可用空格或逗号分隔 (如: 1 2 3)\n")
-    
-    while True:
-        try:
-            raw_input = input("请输入序号: ").strip()
-            if raw_input == '0':
-                print("已退出")
-                sys.exit(0)
-            
-            parts = raw_input.replace(',', ' ').split()
-            selected_files = []
-            invalid_inputs = []
-            
-            for part in parts:
-                try:
-                    idx = int(part) - 1
-                    if 0 <= idx < len(all_files):
-                        selected_files.append(all_files[idx])
-                    else:
-                        invalid_inputs.append(part)
-                except ValueError:
-                    invalid_inputs.append(part)
-            
-            if invalid_inputs:
-                print(f"❌ 无效的序号: {', '.join(invalid_inputs)}")
-                continue
-                
-            if not selected_files:
-                print("未选择任何文件")
-                continue
-                
-            print(f"\n✅ 已选择 {len(selected_files)} 个文件:")
-            for f in selected_files:
-                print(f"  - {f.name}")
-            print()
-            return [str(f) for f in selected_files]
-            
-        except KeyboardInterrupt:
-            print("\n已取消")
-            sys.exit(0)
-
-
-def main(input_file: str):
+def process_file(input_file: str):
+    """Process a single data file through the analysis pipeline."""
     print("=" * 60)
-    print("K 线分析流水线 (Bar Features)")
+    print("K 线分析流水线 (Market Structure)")
     print("=" * 60)
     
-    # 确保输出目录存在
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     
-    # Step 1: 加载数据
     print(f"\n[Step 1/2] 加载数据: {input_file}")
-    from src.io import load_ohlc
     data = load_ohlc(input_file)
     print(f"  加载完成: {data}")
     print(f"  日期范围: {data.date_range[0].date()} ~ {data.date_range[1].date()}")
 
-    # 从输入文件名生成基本文件名
     input_path = Path(input_file)
     base_name = input_path.stem
     
-    # 构建输出目录名称
     safe_name = re.sub(r'[\\/*?:"<>|]', '_', data.name)
     safe_symbol = data.symbol.replace('.', '_')
     
@@ -224,48 +53,33 @@ def main(input_file: str):
     else:
         dir_name = f"{safe_symbol}_{safe_name}".lower()
     
-    # 创建 ticker 子目录
     ticker_output_dir = OUTPUT_DIR / dir_name
     ticker_output_dir.mkdir(parents=True, exist_ok=True)
     
-    # Step 2: 生成市场结构图表 (V2.4: Fusion Logic)
     print(f"\n[Step 2/2] 生成市场结构交互式图表...")
-    from src.analysis.structure import (
-        detect_swings, classify_swings_v2, 
-        detect_climax_reversal, detect_consecutive_reversal, merge_structure_with_events
-    )
-    from src.analysis.indicators import compute_ema
-    from src.analysis.interactive import ChartBuilder
     
     df = data.df.copy()
     df['datetime'] = pd.to_datetime(df['datetime'])
     
-    # 1. 基础结构 (Slow Track)
     df_with_swings = detect_swings(df, window=5)
     result = classify_swings_v2(df_with_swings)
     
-    # 2. 事件检测 (Fast Track)
     result = detect_climax_reversal(result, atr_multiplier=2.0)
     result = detect_consecutive_reversal(result, consecutive_count=3)
     
-    # 3. 融合层 (Fusion Override)
-    # 将快速事件注入慢速结构，生成 adjusted_major_high/low
     result = merge_structure_with_events(
         df_structure=result,
-        df_events_climax=result,       # 包含 is_climax_top/bottom
-        df_events_consecutive=result   # 包含 consecutive_bear_start
+        df_events_climax=result,
+        df_events_consecutive=result
     )
     
     ema20 = compute_ema(df, period=20)
     
-    # 生成图表
     structure_plot = ticker_output_dir / f"{base_name}_structure.html"
     chart = ChartBuilder(result)
     chart.add_candlestick()
     chart.add_indicator('EMA20', ema20, '#FFA500', line_width=1)
     
-    # 使用 Fused Major Levels 作为主结构 (实线)
-    # 使用 V2 Structure 作为次要结构 (虚线 - 用于对比)
     chart.add_structure_levels(
         major_high=result['adjusted_major_high'],
         major_low=result['adjusted_major_low'],
@@ -274,13 +88,7 @@ def main(input_file: str):
         secondary_item_high=result['major_high'],
         secondary_item_low=result['major_low']
     )
-    # [已禁用] 渐进式反转标记 (太过杂乱，暂不显示)
-    # chart.add_reversal_markers(
-    #     consecutive_bear_start=result['consecutive_bear_start'],
-    #     consecutive_bull_start=result['consecutive_bull_start'],
-    #     consecutive_top_price=result['consecutive_top_price'],
-    #     consecutive_bottom_price=result['consecutive_bottom_price'],
-    # )
+    
     chart.build(str(structure_plot), title=f"{data.name} - Market Structure")
     
     print("\n" + "=" * 60)
@@ -290,14 +98,14 @@ def main(input_file: str):
     print(f"  - {structure_plot}  (市场结构图表)")
 
 
-if __name__ == "__main__":
-    DEFAULT_FILE = "data/raw/TB10Y.WI.xlsx"
+def main():
+    """Main entry point."""
     input_files = []
     
     if len(sys.argv) > 1:
         input_files = sys.argv[1:]
     elif sys.stdin.isatty():
-        input_files = select_file_interactive()
+        input_files = select_files_interactive(DATA_RAW_DIR)
     else:
         print(f"非交互模式，使用默认文件: {DEFAULT_FILE}")
         input_files = [DEFAULT_FILE]
@@ -310,8 +118,12 @@ if __name__ == "__main__":
             print("#" * 60)
         
         try:
-            main(f)
+            process_file(f)
         except Exception as e:
             print(f"\n❌ 处理失败 {f}: {e}")
             if total == 1:
                 raise
+
+
+if __name__ == "__main__":
+    main()
