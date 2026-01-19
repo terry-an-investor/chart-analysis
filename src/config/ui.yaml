@@ -1,0 +1,11 @@
+# UI Configuration
+
+ui:
+  chart_width: 1400
+  chart_height: 700
+  bull_color: "#26a69a"
+  bear_color: "#ef5350"
+  ema_color: "#FFA500"
+  ema_line_width: 2
+  level_line_width: 2
+  export_bar_features: true

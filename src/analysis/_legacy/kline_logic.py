@@ -1,10 +1,12 @@
 from enum import Enum
 
+
 class BarRelationship(Enum):
     TREND_UP = "TREND_UP"
     TREND_DOWN = "TREND_DOWN"
     INSIDE = "INSIDE"
     OUTSIDE = "OUTSIDE"
+
 
 def classify_k_line_combination(h1, l1, h2, l2):
     """

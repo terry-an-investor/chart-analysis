@@ -7,3 +7,8 @@ __pycache__/
 .venv
 
 docs/
+tests/
+.coverage
+.coveragerc
+output/
+data/
